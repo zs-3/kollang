@@ -1,0 +1,8 @@
+fn max(a: int, b: int) -> int for any T
+    if a > b
+        return a
+    end
+    return b
+end
+
+print(max(10, 20))

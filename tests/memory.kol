@@ -1,0 +1,3 @@
+let s1 = "Hello ARC string"
+let s2 = s1
+print(s2)

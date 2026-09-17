@@ -1,0 +1,9 @@
+for i in 0..5
+    print(i)
+end
+
+mut n = 0
+while n < 5
+    print(n)
+    n = n + 1
+end

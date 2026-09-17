@@ -1,0 +1,7 @@
+let status = 200
+
+match status
+    200 -> print("OK")
+    404 -> print("Not found")
+    _ -> print("Unknown")
+end

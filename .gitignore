@@ -1,0 +1,5 @@
+compiler/__pycache__/
+*.pyc
+*.c
+bench_fib
+hello

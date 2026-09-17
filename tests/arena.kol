@@ -1,0 +1,4 @@
+arena req
+    let x = 100
+    print(x)
+end arena req

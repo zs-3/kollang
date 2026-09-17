@@ -1,0 +1,6 @@
+fn test_defer()
+    defer print("world")
+    print("hello")
+end
+
+test_defer()

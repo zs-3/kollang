@@ -1,0 +1,4 @@
+-- std/io.kol
+fn print_str(s: str)
+    print(s)
+end

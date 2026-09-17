@@ -1,0 +1,17 @@
+interface Printable
+    fn to_str() -> str
+end
+
+type Point
+    x: int
+    y: int
+
+    impl Printable
+        fn to_str() -> str
+            return "Point"
+        end
+    end
+end
+
+let p = Point(x: 10, y: 20)
+print(p.x)
