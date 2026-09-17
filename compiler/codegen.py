@@ -9,6 +9,7 @@ class Codegen:
         self.indent_level = 0
         self.temp_var_count = 0
         self.var_types: Dict[str, str] = {}
+        self.func_ret_types: Dict[str, str] = {}
         self.struct_fields: Dict[str, List[tuple]] = {}
         self.defer_stack: List[List[ASTNode]] = []
 
@@ -31,7 +32,12 @@ class Codegen:
             all_nodes = node.statements
 
         for decl in all_nodes:
-            if isinstance(decl, TypeDecl):
+            if isinstance(decl, FunctionDecl):
+                if decl.return_type:
+                    self.func_ret_types[decl.name] = decl.return_type.name
+                else:
+                    self.func_ret_types[decl.name] = "void"
+            elif isinstance(decl, TypeDecl):
                 fields = []
                 field_decls = []
                 for f in decl.fields:
@@ -46,6 +52,31 @@ class Codegen:
                 self.struct_fields[decl.name] = fields
                 self.type_decls.append(f"typedef struct {{\n" + "\n".join(field_decls) + f"\n}} {decl.name};")
 
+        # Generate forward function prototypes
+        proto_lines = []
+        for decl in all_nodes:
+            if isinstance(decl, FunctionDecl) and decl.name != "main":
+                rt = "void"
+                if decl.return_type:
+                    if decl.return_type.name == "str": rt = "KolStr"
+                    elif decl.return_type.name == "float": rt = "double"
+                    elif decl.return_type.name == "bool": rt = "bool"
+                    elif decl.return_type.name == "int": rt = "int64_t"
+                    else: rt = decl.return_type.name
+
+                params_code = []
+                for p in decl.params:
+                    pt = "int64_t"
+                    if p.type_annot:
+                        if p.type_annot.name == "str": pt = "KolStr"
+                        elif p.type_annot.name == "float": pt = "double"
+                        elif p.type_annot.name == "bool": pt = "bool"
+                        elif p.type_annot.name == "int": pt = "int64_t"
+                        else: pt = p.type_annot.name
+                    params_code.append(f"{pt} {p.name}")
+                p_str = ", ".join(params_code) if params_code else "void"
+                proto_lines.append(f"{rt} _kol_fn_{decl.name}({p_str});")
+
         body_code = []
         self.code = body_code
 
@@ -54,7 +85,7 @@ class Codegen:
             self.indent_level += 1
             self.defer_stack.append([])
             for stmt in node.statements:
-                if not isinstance(stmt, TypeDecl):
+                if not isinstance(stmt, (TypeDecl, UseStmt)):
                     self._gen_statement(stmt)
             self._emit_defers()
             self.defer_stack.pop()
@@ -67,7 +98,7 @@ class Codegen:
                     self._gen_function_decl(decl)
                 elif isinstance(decl, VarDecl):
                     self._gen_var_decl(decl, global_scope=True)
-                elif not isinstance(decl, TypeDecl):
+                elif not isinstance(decl, (TypeDecl, UseStmt)):
                     self._gen_statement(decl)
 
             has_main = any(isinstance(d, FunctionDecl) and d.name == "main" for d in node.declarations)
@@ -76,7 +107,7 @@ class Codegen:
                 self._emit("    return 0;")
                 self._emit("}")
 
-        self.code = ['#include "kol_runtime.h"', ""] + self.type_decls + [""] + body_code
+        self.code = ['#include "kol_runtime.h"', ""] + self.type_decls + [""] + proto_lines + [""] + body_code
         return "\n".join(self.code)
 
     def _emit_defers(self):
@@ -89,6 +120,8 @@ class Codegen:
     def _gen_statement(self, stmt: ASTNode, current_fn_fallible: bool = False):
         if isinstance(stmt, VarDecl):
             self._gen_var_decl(stmt)
+        elif isinstance(stmt, UseStmt):
+            pass
         elif isinstance(stmt, Assignment):
             target = self._gen_expr(stmt.target)
             val = self._gen_expr(stmt.value)
@@ -246,9 +279,18 @@ class Codegen:
                 elif type_key == "bool": type_str = "bool"
                 elif type_key == "int": type_str = "int64_t"
                 else: type_str = type_key
-            elif isinstance(decl.value, CallExpr) and isinstance(decl.value.callee, Ident) and decl.value.callee.name in self.struct_fields:
-                type_key = decl.value.callee.name
-                type_str = type_key
+            elif isinstance(decl.value, CallExpr) and isinstance(decl.value.callee, Ident):
+                fn_name = decl.value.callee.name
+                if fn_name in self.func_ret_types:
+                    type_key = self.func_ret_types[fn_name]
+                    if type_key == "str": type_str = "KolStr"
+                    elif type_key == "float": type_str = "double"
+                    elif type_key == "bool": type_str = "bool"
+                    elif type_key == "int": type_str = "int64_t"
+                    else: type_str = type_key
+                elif fn_name in self.struct_fields:
+                    type_key = fn_name
+                    type_str = fn_name
             elif isinstance(decl.value, ListExpr):
                 type_key = "kol_array_t"
                 type_str = "kol_array_t"
@@ -347,7 +389,6 @@ class Codegen:
             return expr.name
 
         if isinstance(expr, PipeExpr):
-            # left |> right
             left_c = self._gen_expr(expr.left)
             if isinstance(expr.right, Ident):
                 fn_name = f"_kol_fn_{expr.right.name}"
@@ -484,4 +525,8 @@ class Codegen:
                             return "int"
         if isinstance(expr, Ident):
             return self.var_types.get(expr.name, "int")
+        if isinstance(expr, CallExpr) and isinstance(expr.callee, Ident):
+            fn_name = expr.callee.name
+            if fn_name in self.func_ret_types:
+                return self.func_ret_types[fn_name]
         return "int"

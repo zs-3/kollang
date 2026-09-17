@@ -19,7 +19,7 @@ class TokenType(Enum):
     IMPL = auto()
     INTERFACE = auto()
     SELF = auto()
-    SELF_TYPE = auto()  # Self
+    SELF_TYPE = auto()
     IF = auto()
     ELIF = auto()
     ELSE = auto()
@@ -64,9 +64,9 @@ class TokenType(Enum):
     IDENT = auto()
 
     # String Interpolation
-    STR_INTERP_START = auto()  # Prefix before first {
-    STR_INTERP_MID = auto()    # Text between } and {
-    STR_INTERP_END = auto()    # Text after last }
+    STR_INTERP_START = auto()
+    STR_INTERP_MID = auto()
+    STR_INTERP_END = auto()
 
     # Operators
     PLUS = auto()           # +

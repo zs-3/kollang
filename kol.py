@@ -12,6 +12,7 @@ from compiler.parser import Parser
 from compiler.codegen import Codegen
 from compiler.analyser import Analyser
 from compiler.errors import KolError
+from compiler.ast_nodes import ASTNode, Program, ScriptProgram
 
 def get_c_compiler() -> str:
     for cc in ["gcc", "clang", "tcc"]:
@@ -19,21 +20,67 @@ def get_c_compiler() -> str:
             return cc
     raise RuntimeError("No suitable C compiler (gcc, clang, tcc) found in PATH.")
 
-def compile_kol_to_c(kol_filepath: str) -> str:
-    with open(kol_filepath, "r", encoding="utf-8") as f:
+def resolve_imports_and_parse(filepath: str, visited: set) -> List[ASTNode]:
+    abs_path = os.path.abspath(filepath)
+    if abs_path in visited:
+        return []
+    visited.add(abs_path)
+
+    if not os.path.exists(filepath):
+        if os.path.exists(filepath + ".kol"):
+            filepath = filepath + ".kol"
+        else:
+            return []
+
+    with open(filepath, "r", encoding="utf-8") as f:
         source = f.read()
 
-    lexer = Lexer(kol_filepath, source)
+    lexer = Lexer(filepath, source)
     tokens = lexer.tokenize()
 
-    parser = Parser(tokens, kol_filepath)
+    parser = Parser(tokens, filepath)
     ast = parser.parse()
 
+    nodes = []
+    stmts_or_decls = []
+    if isinstance(ast, ScriptProgram):
+        stmts_or_decls = ast.statements
+    elif isinstance(ast, Program):
+        stmts_or_decls = ast.declarations
+
+    for stmt in stmts_or_decls:
+        if hasattr(stmt, 'path') and getattr(stmt, 'path', ''):
+            import_path = getattr(stmt, 'path')
+            if import_path.startswith("./") or import_path.startswith("../"):
+                dir_path = os.path.dirname(filepath)
+                target_file = os.path.join(dir_path, import_path)
+                imported_nodes = resolve_imports_and_parse(target_file, visited)
+                nodes.extend(imported_nodes)
+        else:
+            nodes.append(stmt)
+
+    return nodes
+
+def compile_kol_to_c(kol_filepath: str) -> str:
+    visited = set()
+    all_nodes = resolve_imports_and_parse(kol_filepath, visited)
+
+    has_main = False
+    for node in all_nodes:
+        if hasattr(node, 'name') and getattr(node, 'name', '') == 'main':
+            has_main = True
+            break
+
+    if has_main:
+        combined_ast = Program(declarations=all_nodes)
+    else:
+        combined_ast = ScriptProgram(statements=all_nodes)
+
     analyser = Analyser(kol_filepath)
-    analyser.analyse(ast)
+    analyser.analyse(combined_ast)
 
     codegen = Codegen(kol_filepath)
-    c_code = codegen.generate(ast)
+    c_code = codegen.generate(combined_ast)
     return c_code
 
 def cmd_run(args: List[str]):

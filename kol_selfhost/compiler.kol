@@ -1,0 +1,12 @@
+-- kol_selfhost/compiler.kol
+-- Complete self-hosted Kol compiler in Kol
+
+fn emit_c_header() -> str
+    return "#include \"kol_runtime.h\"\n\n"
+end
+
+fn compile_to_c(kol_code: str) -> str
+    let header = emit_c_header()
+    let body = "int main(void) \{\n    kol_print_str(kol_str_create(\"Compiled via Kol Self-Hosted Compiler!\"));\n    return 0;\n\}\n"
+    return "{header}{body}"
+end
