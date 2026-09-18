@@ -125,23 +125,24 @@ def cmd_build(args: List[str]):
     c_code = compile_kol_to_c(file_path)
     base_name = os.path.splitext(os.path.basename(file_path))[0]
     c_file = f"{base_name}.c"
-    bin_file = f"{base_name}"
+    out_bin = f"./{base_name}"
 
     with open(c_file, "w", encoding="utf-8") as f:
         f.write(c_code)
 
     cc = get_c_compiler()
     runtime_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "runtime"))
-    comp_cmd = [cc, "-I", runtime_dir, c_file, "-o", bin_file, "-lm"]
     if release:
-        comp_cmd.append("-O3")
+        comp_cmd = [cc, "-O3", "-march=native", "-I", runtime_dir, "-o", out_bin, c_file, "-lm"]
+    else:
+        comp_cmd = [cc, "-O2", "-I", runtime_dir, "-o", out_bin, c_file, "-lm"]
 
     res = subprocess.run(comp_cmd, capture_output=True, text=True)
     if res.returncode != 0:
         print("C Compilation Error:")
         print(res.stderr)
         sys.exit(1)
-    print(f"Built binary: ./{bin_file}")
+    print(f"Built binary: {out_bin}")
 
 def cmd_check(args: List[str]):
     if not args:

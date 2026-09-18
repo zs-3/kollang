@@ -1,7 +1,11 @@
-let status = 200
-
-match status
-    200 -> print("OK")
-    404 -> print("Not found")
-    _ -> print("Unknown")
+let x = 42
+match x
+    1  -> print("one")
+    42 -> print("forty-two")
+    _  -> print("other")
+end
+match x
+    1..10   -> print("small")
+    11..100 -> print("medium")
+    _       -> print("large")
 end

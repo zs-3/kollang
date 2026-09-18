@@ -1,4 +1,6 @@
-let list = [1, 2, 3]
-print(list[0])
-print(list[1])
-print(list[2])
+let nums = [10, 20, 30]
+print(nums[0])
+print(nums[2])
+for n in nums
+    print(n)
+end

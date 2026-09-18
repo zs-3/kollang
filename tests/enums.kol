@@ -1,0 +1,12 @@
+enum Color
+    Red
+    Green
+    Blue
+end
+let c = Color.Green
+match c
+    Color.Red   -> print("red")
+    Color.Green -> print("green")
+    Color.Blue  -> print("blue")
+    _           -> print("unknown")
+end

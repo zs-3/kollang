@@ -315,25 +315,25 @@ static inline void kol_array_free(kol_array_t* arr) {
 }
 
 /* ============================================================================
- * HASH MAP (kol_map_t)
+ * HASH MAP (KolMap_si)
  * ============================================================================ */
 
-typedef struct KolMapEntry {
+typedef struct KolMapEntry_si {
     KolStr key;
-    int64_t val_int;
-    struct KolMapEntry* next;
-} KolMapEntry;
+    int64_t val;
+    struct KolMapEntry_si* next;
+} KolMapEntry_si;
 
 typedef struct {
-    KolMapEntry** buckets;
+    KolMapEntry_si** buckets;
     size_t num_buckets;
     size_t count;
-} kol_map_t;
+} KolMap_si;
 
-static inline kol_map_t kol_map_create(size_t num_buckets) {
-    kol_map_t m;
+static inline KolMap_si kol_map_si_create(size_t num_buckets) {
+    KolMap_si m;
     m.num_buckets = num_buckets > 0 ? num_buckets : 16;
-    m.buckets = (KolMapEntry**)calloc(m.num_buckets, sizeof(KolMapEntry*));
+    m.buckets = (KolMapEntry_si**)calloc(m.num_buckets, sizeof(KolMapEntry_si*));
     m.count = 0;
     return m;
 }
@@ -347,36 +347,36 @@ static inline uint32_t kol_hash_str(KolStr s) {
     return hash;
 }
 
-static inline void kol_map_put_int(kol_map_t* m, KolStr key, int64_t val) {
+static inline void kol_map_si_set(KolMap_si* m, KolStr key, int64_t val) {
     uint32_t hash = kol_hash_str(key);
     size_t bucket = hash % m->num_buckets;
-    KolMapEntry* e = m->buckets[bucket];
+    KolMapEntry_si* e = m->buckets[bucket];
     while (e) {
         if (kol_str_eq(e->key, key)) {
-            e->val_int = val;
+            e->val = val;
             return;
         }
         e = e->next;
     }
-    KolMapEntry* new_e = (KolMapEntry*)malloc(sizeof(KolMapEntry));
+    KolMapEntry_si* new_e = (KolMapEntry_si*)malloc(sizeof(KolMapEntry_si));
     new_e->key = key;
-    new_e->val_int = val;
+    new_e->val = val;
     new_e->next = m->buckets[bucket];
     m->buckets[bucket] = new_e;
     m->count++;
 }
 
-static inline int64_t kol_map_get_int(kol_map_t* m, KolStr key, int64_t default_val) {
+static inline int64_t kol_map_si_get(KolMap_si* m, KolStr key) {
     uint32_t hash = kol_hash_str(key);
     size_t bucket = hash % m->num_buckets;
-    KolMapEntry* e = m->buckets[bucket];
+    KolMapEntry_si* e = m->buckets[bucket];
     while (e) {
         if (kol_str_eq(e->key, key)) {
-            return e->val_int;
+            return e->val;
         }
         e = e->next;
     }
-    return default_val;
+    return 0;
 }
 
 /* ============================================================================

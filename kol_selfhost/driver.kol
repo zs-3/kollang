@@ -1,8 +1,0 @@
--- kol_selfhost/driver.kol
--- Compiler driver generating C99 native output for Kol constructs
-
-fn generate_c_code(source: str) -> str
-    let header = "#include \"kol_runtime.h\"\n\n"
-    let body = "int main(void) \{\n    kol_print_str(kol_str_create(\"Hello Kol from Self-Hosted Native Binary!\"));\n    return 0;\n\}\n"
-    return "{header}{body}"
-end

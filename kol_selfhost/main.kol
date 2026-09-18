@@ -1,9 +1,0 @@
--- kol_selfhost/main.kol
-use ./driver
-
-fn main()
-    let dummy_source = "print(\"hello\")"
-    let c_code = generate_c_code(dummy_source)
-    print("Generated C Code:")
-    print(c_code)
-end

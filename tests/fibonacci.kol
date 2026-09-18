@@ -1,8 +1,8 @@
-fn fib(n: int) -> int
+fn fibonacci(n: int) -> int
     if n <= 1
         return n
     end
-    return fib(n - 1) + fib(n - 2)
+    return fibonacci(n - 1) + fibonacci(n - 2)
 end
-
-print(fib(10))
+print(fibonacci(10))
+print(fibonacci(20))

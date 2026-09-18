@@ -1,9 +1,10 @@
 fn divide(a: int, b: int) -> int!
     if b == 0
-        fail "division by zero"
+        fail "div by zero"
     end
     return a / b
 end
-
-let res = divide(10, 2) or 0
-print(res)
+let good = divide(10, 2) or 0
+let bad  = divide(5, 0) or -1
+print(good)
+print(bad)

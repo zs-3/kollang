@@ -1,11 +1,8 @@
-fn parse(s: str) -> int
-    return 10
-end
-
 fn double(x: int) -> int
     return x * 2
 end
-
-let res = 5
-    |> double
-print(res)
+fn add_one(x: int) -> int
+    return x + 1
+end
+let result = 5 |> double |> add_one
+print(result)

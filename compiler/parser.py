@@ -461,7 +461,7 @@ class Parser:
             if self._check(TokenType.END, TokenType.EOF):
                 break
             a_loc = self._curr().location
-            pat = self._parse_primary()
+            pat = self._parse_range()
 
             guard = None
             if self._match(TokenType.IF):
@@ -766,6 +766,10 @@ class Parser:
             end_part = self._expect(TokenType.STR_INTERP_END, "end of interpolated string").value
             parts.append(end_part)
             return StrInterp(parts=parts, location=loc)
+
+        if self._check(TokenType.SELF):
+            self._advance()
+            return Ident(name="self", location=loc)
 
         if self._check(TokenType.IDENT):
             name = self._advance().value

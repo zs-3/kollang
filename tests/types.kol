@@ -1,8 +1,13 @@
 type Person
     name: str
     age: int
+    fn greet() -> str
+        return "Hi I am {self.name}"
+    end
 end
-
-let p = Person(name: "Kiran", age: 25)
-print(p.name)
-print(p.age)
+fn main()
+    let p = Person(name: "Kiran", age: 25)
+    print(p.name)
+    print(p.age)
+    print(p.greet())
+end

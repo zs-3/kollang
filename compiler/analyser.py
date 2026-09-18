@@ -83,7 +83,7 @@ class Analyser:
                         raise KolError(f"Cannot mutate immutable binding '{sym.name}'", loc, hint="declare variable with 'mut'")
                     val_type = self._analyse_expr(stmt.value)
                     if sym.type_name != val_type and val_type != "any":
-                        raise KolError(f"Type mismatch on assignment: expected {sym.type_name}, got {val_type}", loc)
+                        sym.type_name = val_type
                 else:
                     val_type = self._analyse_expr(stmt.value)
                     self.current_scope.define(stmt.target.name, val_type, is_mut=False)

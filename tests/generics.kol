@@ -1,8 +1,9 @@
-fn max(a: int, b: int) -> int for any T
+fn max(a: T, b: T) -> T for any T
     if a > b
         return a
     end
     return b
 end
 
-print(max(10, 20))
+print(max(3, 5))
+print(max(3.14, 2.71))

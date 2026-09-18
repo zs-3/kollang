@@ -1,6 +1,6 @@
-fn test_defer()
-    defer print("world")
-    print("hello")
+fn main()
+    print("start")
+    defer print("third")
+    defer print("second")
+    print("first")
 end
-
-test_defer()

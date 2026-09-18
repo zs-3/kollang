@@ -1,4 +1,4 @@
-from typing import List, Set, Dict
+from typing import List, Set, Dict, Optional, Tuple
 from compiler.ast_nodes import *
 
 class Codegen:
@@ -6,11 +6,18 @@ class Codegen:
         self.filename = filename
         self.code: List[str] = []
         self.type_decls: List[str] = []
+        self.proto_decls: List[str] = []
+        self.helper_funcs: List[str] = []
         self.indent_level = 0
         self.temp_var_count = 0
+        self.lambda_count = 0
         self.var_types: Dict[str, str] = {}
         self.func_ret_types: Dict[str, str] = {}
         self.struct_fields: Dict[str, List[tuple]] = {}
+        self.enum_defs: Dict[str, EnumDecl] = {}
+        self.generic_func_defs: Dict[str, FunctionDecl] = {}
+        self.generic_instances: Set[Tuple[str, str]] = set()
+        self.current_type_name: Optional[str] = None
         self.defer_stack: List[List[ASTNode]] = []
 
     def _emit(self, line: str):
@@ -24,6 +31,8 @@ class Codegen:
     def generate(self, node: ASTNode) -> str:
         self.code = []
         self.type_decls = []
+        self.proto_decls = []
+        self.helper_funcs = []
 
         all_nodes = []
         if isinstance(node, Program):
@@ -31,12 +40,41 @@ class Codegen:
         elif isinstance(node, ScriptProgram):
             all_nodes = node.statements
 
+        # Pre-pass: collect types, enums, functions
         for decl in all_nodes:
             if isinstance(decl, FunctionDecl):
-                if decl.return_type:
-                    self.func_ret_types[decl.name] = decl.return_type.name
+                if decl.generic_params:
+                    self.generic_func_defs[decl.name] = decl
                 else:
-                    self.func_ret_types[decl.name] = "void"
+                    self.func_ret_types[decl.name] = decl.return_type.name if decl.return_type else "void"
+
+            elif isinstance(decl, EnumDecl):
+                self.enum_defs[decl.name] = decl
+                has_payload = any(v.fields for v in decl.variants)
+                if not has_payload:
+                    variants_c = [f"    {decl.name}_{v.name}" for v in decl.variants]
+                    self.type_decls.append(f"typedef enum {{\n" + ",\n".join(variants_c) + f"\n}} {decl.name};")
+                else:
+                    tag_variants = [f"    {decl.name}_{v.name}" for v in decl.variants]
+                    tag_enum = f"typedef enum {{\n" + ",\n".join(tag_variants) + f"\n}} {decl.name}Tag;"
+
+                    union_fields = []
+                    for v in decl.variants:
+                        if v.fields:
+                            f_decls = []
+                            for f in v.fields:
+                                ft = "int64_t"
+                                if f.type_annot:
+                                    if f.type_annot.name == "float": ft = "double"
+                                    elif f.type_annot.name == "str": ft = "KolStr"
+                                    elif f.type_annot.name == "bool": ft = "bool"
+                                f_decls.append(f"            {ft} {f.name};")
+                            union_fields.append(f"        struct {{\n" + "\n".join(f_decls) + f"\n        }} {v.name};")
+
+                    union_str = f"    union {{\n" + "\n".join(union_fields) + f"\n    }} data;" if union_fields else ""
+                    struct_enum = f"typedef struct {{\n    {decl.name}Tag tag;\n{union_str}\n}} {decl.name};"
+                    self.type_decls.append(f"{tag_enum}\n{struct_enum}")
+
             elif isinstance(decl, TypeDecl):
                 fields = []
                 field_decls = []
@@ -47,15 +85,15 @@ class Codegen:
                         if f.type_annot.name == "str": ft = "KolStr"
                         elif f.type_annot.name == "float": ft = "double"
                         elif f.type_annot.name == "bool": ft = "bool"
+                        elif f.type_annot.name in self.struct_fields or f.type_annot.name in self.enum_defs: ft = f.type_annot.name
                     fields.append((fn, ft))
                     field_decls.append(f"    {ft} {fn};")
                 self.struct_fields[decl.name] = fields
                 self.type_decls.append(f"typedef struct {{\n" + "\n".join(field_decls) + f"\n}} {decl.name};")
 
-        # Generate forward function prototypes
-        proto_lines = []
+        # Forward declarations for functions and methods
         for decl in all_nodes:
-            if isinstance(decl, FunctionDecl) and decl.name != "main":
+            if isinstance(decl, FunctionDecl) and not decl.generic_params and decl.name != "main":
                 rt = "void"
                 if decl.return_type:
                     if decl.return_type.name == "str": rt = "KolStr"
@@ -75,7 +113,53 @@ class Codegen:
                         else: pt = p.type_annot.name
                     params_code.append(f"{pt} {p.name}")
                 p_str = ", ".join(params_code) if params_code else "void"
-                proto_lines.append(f"{rt} _kol_fn_{decl.name}({p_str});")
+                self.proto_decls.append(f"{rt} _kol_fn_{decl.name}({p_str});")
+
+            elif isinstance(decl, TypeDecl):
+                for m in decl.methods:
+                    rt = "void"
+                    if m.return_type:
+                        if m.return_type.name == "str": rt = "KolStr"
+                        elif m.return_type.name == "float": rt = "double"
+                        elif m.return_type.name == "bool": rt = "bool"
+                        elif m.return_type.name == "int": rt = "int64_t"
+                        else: rt = m.return_type.name
+
+                    params_code = [f"{decl.name}* self"]
+                    for p in m.params:
+                        pt = "int64_t"
+                        if p.type_annot:
+                            if p.type_annot.name == "str": pt = "KolStr"
+                            elif p.type_annot.name == "float": pt = "double"
+                            elif p.type_annot.name == "bool": pt = "bool"
+                            elif p.type_annot.name == "int": pt = "int64_t"
+                            else: pt = p.type_annot.name
+                        params_code.append(f"{pt} {p.name}")
+                    p_str = ", ".join(params_code)
+                    self.proto_decls.append(f"{rt} _kol_method_{decl.name}_{m.name}({p_str});")
+
+                for impl_b in decl.impls:
+                    for m in impl_b.methods:
+                        rt = "void"
+                        if m.return_type:
+                            if m.return_type.name == "str": rt = "KolStr"
+                            elif m.return_type.name == "float": rt = "double"
+                            elif m.return_type.name == "bool": rt = "bool"
+                            elif m.return_type.name == "int": rt = "int64_t"
+                            else: rt = m.return_type.name
+
+                        params_code = [f"{decl.name}* self"]
+                        for p in m.params:
+                            pt = "int64_t"
+                            if p.type_annot:
+                                if p.type_annot.name == "str": pt = "KolStr"
+                                elif p.type_annot.name == "float": pt = "double"
+                                elif p.type_annot.name == "bool": pt = "bool"
+                                elif p.type_annot.name == "int": pt = "int64_t"
+                                else: pt = p.type_annot.name
+                            params_code.append(f"{pt} {p.name}")
+                        p_str = ", ".join(params_code)
+                        self.proto_decls.append(f"{rt} _kol_impl_{impl_b.interface_name}_{decl.name}_{m.name}({p_str});")
 
         body_code = []
         self.code = body_code
@@ -85,7 +169,7 @@ class Codegen:
             self.indent_level += 1
             self.defer_stack.append([])
             for stmt in node.statements:
-                if not isinstance(stmt, (TypeDecl, UseStmt)):
+                if not isinstance(stmt, (TypeDecl, EnumDecl, InterfaceDecl, UseStmt)):
                     self._gen_statement(stmt)
             self._emit_defers()
             self.defer_stack.pop()
@@ -95,10 +179,19 @@ class Codegen:
         elif isinstance(node, Program):
             for decl in node.declarations:
                 if isinstance(decl, FunctionDecl):
-                    self._gen_function_decl(decl)
+                    if not decl.generic_params:
+                        self._gen_function_decl(decl)
+                elif isinstance(decl, TypeDecl):
+                    self.current_type_name = decl.name
+                    for m in decl.methods:
+                        self._gen_method_decl(decl.name, m)
+                    for impl_b in decl.impls:
+                        for m in impl_b.methods:
+                            self._gen_method_decl(decl.name, m, impl_interface=impl_b.interface_name)
+                    self.current_type_name = None
                 elif isinstance(decl, VarDecl):
                     self._gen_var_decl(decl, global_scope=True)
-                elif not isinstance(decl, (TypeDecl, UseStmt)):
+                elif not isinstance(decl, (EnumDecl, InterfaceDecl, UseStmt)):
                     self._gen_statement(decl)
 
             has_main = any(isinstance(d, FunctionDecl) and d.name == "main" for d in node.declarations)
@@ -107,8 +200,13 @@ class Codegen:
                 self._emit("    return 0;")
                 self._emit("}")
 
-        self.code = ['#include "kol_runtime.h"', ""] + self.type_decls + [""] + proto_lines + [""] + body_code
-        return "\n".join(self.code)
+        header_inc = '#include "kol_runtime.h"\n\n'
+        type_section = "\n".join(self.type_decls) + "\n\n" if self.type_decls else ""
+        proto_section = "\n".join(self.proto_decls) + "\n\n" if self.proto_decls else ""
+        helper_section = "\n".join(self.helper_funcs) + "\n\n" if self.helper_funcs else ""
+
+        full_code = header_inc + type_section + proto_section + helper_section + "\n".join(body_code)
+        return full_code
 
     def _emit_defers(self):
         if self.defer_stack and self.defer_stack[-1]:
@@ -126,7 +224,7 @@ class Codegen:
             target = self._gen_expr(stmt.target)
             val = self._gen_expr(stmt.value)
             self._emit(f"{target} {stmt.op} {val};")
-            if self.var_types.get(stmt.target.name) == "str":
+            if isinstance(stmt.target, Ident) and self.var_types.get(stmt.target.name) == "str":
                 self._emit(f"kol_arc_retain_str({target});")
         elif isinstance(stmt, DeferStmt):
             if self.defer_stack:
@@ -166,11 +264,61 @@ class Codegen:
         elif isinstance(stmt, MatchStmt):
             val_var = self._temp_var("match")
             target_expr = self._gen_expr(stmt.expr)
+            target_type = self._infer_expr_type(stmt.expr)
+
+            if target_type in self.enum_defs:
+                enum_decl = self.enum_defs[target_type]
+                has_payload = any(v.fields for v in enum_decl.variants)
+                if has_payload:
+                    self._emit(f"{target_type} {val_var} = {target_expr};")
+                    self._emit(f"switch ({val_var}.tag) {{")
+                    for arm in stmt.arms:
+                        self.indent_level += 1
+                        if isinstance(arm.pattern, CallExpr) and isinstance(arm.pattern.callee, Ident):
+                            var_name = arm.pattern.callee.name
+                            self._emit(f"case {target_type}_{var_name}: {{")
+                            self.indent_level += 1
+                            v_decl = next((v for v in enum_decl.variants if v.name == var_name), None)
+                            if v_decl and v_decl.fields:
+                                for idx_f, arg_expr in enumerate(arm.pattern.args):
+                                    if isinstance(arg_expr, Ident):
+                                        f_info = v_decl.fields[idx_f]
+                                        ft = "int64_t"
+                                        if f_info.type_annot:
+                                            if f_info.type_annot.name == "float": ft = "double"
+                                            elif f_info.type_annot.name == "str": ft = "KolStr"
+                                        self.var_types[arg_expr.name] = f_info.type_annot.name if f_info.type_annot else "int"
+                                        self._emit(f"{ft} {arg_expr.name} = {val_var}.data.{var_name}.{f_info.name};")
+                            self._gen_statement(arm.body, current_fn_fallible)
+                            self._emit("break;")
+                            self.indent_level -= 1
+                            self._emit("}")
+                        elif isinstance(arm.pattern, Ident) and arm.pattern.name == "_":
+                            self._emit("default: {")
+                            self.indent_level += 1
+                            self._gen_statement(arm.body, current_fn_fallible)
+                            self._emit("break;")
+                            self.indent_level -= 1
+                            self._emit("}")
+                        self.indent_level -= 1
+                    self._emit("}")
+                    return
+
             self._emit(f"int64_t {val_var} = {target_expr};")
             is_first = True
             for arm in stmt.arms:
                 if isinstance(arm.pattern, Ident) and arm.pattern.name == "_":
                     self._emit("} else {")
+                elif isinstance(arm.pattern, RangeExpr):
+                    start = self._gen_expr(arm.pattern.start)
+                    end = self._gen_expr(arm.pattern.end)
+                    op = "<=" if arm.pattern.inclusive else "<"
+                    cond_str = f"({val_var} >= {start} && {val_var} {op} {end})"
+                    if is_first:
+                        self._emit(f"if ({cond_str}) {{")
+                        is_first = False
+                    else:
+                        self._emit(f"}} else if ({cond_str}) {{")
                 else:
                     pat_val = self._gen_expr(arm.pattern)
                     if is_first:
@@ -195,6 +343,21 @@ class Codegen:
                 self.var_types[v] = "int"
                 self._emit(f"for (int64_t {v} = {start}; {v} {op} {end}; {v} += {step}) {{")
                 self.indent_level += 1
+                for s in stmt.body:
+                    self._gen_statement(s, current_fn_fallible)
+                self.indent_level -= 1
+                self._emit("}")
+            else:
+                arr_c = self._gen_expr(stmt.iterable)
+                elem_v = stmt.var_name
+                idx_c = self._temp_var("idx")
+                self.var_types[elem_v] = "int" # default int or str
+                self._emit(f"for (size_t {idx_c} = 0; {idx_c} < {arr_c}.len; {idx_c}++) {{")
+                self.indent_level += 1
+                if stmt.index_var:
+                    self.var_types[stmt.index_var] = "int"
+                    self._emit(f"int64_t {stmt.index_var} = (int64_t){idx_c};")
+                self._emit(f"int64_t {elem_v} = *((int64_t*)kol_array_get(&{arr_c}, {idx_c}, \"{self.filename}\", {stmt.location.line if stmt.location else 0}));")
                 for s in stmt.body:
                     self._gen_statement(s, current_fn_fallible)
                 self.indent_level -= 1
@@ -240,7 +403,8 @@ class Codegen:
             self._emit(f"return kol_result_err({msg});")
 
         elif isinstance(stmt, FunctionDecl):
-            self._gen_function_decl(stmt)
+            if not stmt.generic_params:
+                self._gen_function_decl(stmt)
 
         else:
             expr = self._gen_expr(stmt)
@@ -272,6 +436,9 @@ class Codegen:
             elif isinstance(decl.value, IntLit):
                 type_key = "int"
                 type_str = "int64_t"
+            elif isinstance(decl.value, MapExpr):
+                type_key = "KolMap_si"
+                type_str = "KolMap_si"
             elif isinstance(decl.value, Ident):
                 type_key = self.var_types.get(decl.value.name, "int")
                 if type_key == "str": type_str = "KolStr"
@@ -289,6 +456,9 @@ class Codegen:
                     elif type_key == "int": type_str = "int64_t"
                     else: type_str = type_key
                 elif fn_name in self.struct_fields:
+                    type_key = fn_name
+                    type_str = fn_name
+                elif fn_name in self.enum_defs:
                     type_key = fn_name
                     type_str = fn_name
             elif isinstance(decl.value, ListExpr):
@@ -368,6 +538,57 @@ class Codegen:
         self._emit("}")
         self._emit("")
 
+    def _gen_method_decl(self, type_name: str, decl: FunctionDecl, impl_interface: Optional[str] = None):
+        ret_type = "void"
+        if decl.return_type:
+            rt = decl.return_type.name
+            if rt == "int": ret_type = "int64_t"
+            elif rt == "float": ret_type = "double"
+            elif rt == "bool": ret_type = "bool"
+            elif rt == "str": ret_type = "KolStr"
+            else: ret_type = rt
+
+        c_fn_name = f"_kol_impl_{impl_interface}_{type_name}_{decl.name}" if impl_interface else f"_kol_method_{type_name}_{decl.name}"
+
+        params_code = [f"{type_name}* self"]
+        self.var_types["self"] = type_name
+
+        for p in decl.params:
+            pt = "int64_t"
+            pk = "int"
+            if p.type_annot:
+                pn = p.type_annot.name
+                pk = pn
+                if pn == "int": pt = "int64_t"
+                elif pn == "float": pt = "double"
+                elif pn == "bool": pt = "bool"
+                elif pn == "str": pt = "KolStr"
+            self.var_types[p.name] = pk
+            params_code.append(f"{pt} {p.name}")
+
+        param_str = ", ".join(params_code)
+
+        self._emit(f"{ret_type} {c_fn_name}({param_str}) {{")
+        self.indent_level += 1
+        self.defer_stack.append([])
+
+        body = decl.body
+        for idx, stmt in enumerate(body):
+            if idx == len(body) - 1 and ret_type != "void" and not isinstance(stmt, ReturnStmt):
+                if not isinstance(stmt, (VarDecl, Assignment, IfStmt, ForStmt, WhileStmt, LoopStmt)):
+                    val = self._gen_expr(stmt)
+                    self._emit_defers()
+                    self._emit(f"return {val};")
+                    continue
+            self._gen_statement(stmt)
+
+        self._emit_defers()
+        self.defer_stack.pop()
+
+        self.indent_level -= 1
+        self._emit("}")
+        self._emit("")
+
     def _gen_expr(self, expr: ASTNode) -> str:
         if isinstance(expr, IntLit):
             return str(expr.value)
@@ -387,6 +608,15 @@ class Codegen:
 
         if isinstance(expr, Ident):
             return expr.name
+
+        if isinstance(expr, LambdaExpr):
+            self.lambda_count += 1
+            lambda_fn_name = f"_kol_lambda_{self.lambda_count}"
+            p_name = expr.params[0] if expr.params else "x"
+            body_c = self._gen_expr(expr.body)
+            lambda_code = f"static int64_t {lambda_fn_name}(int64_t {p_name}) {{\n    return {body_c};\n}}"
+            self.helper_funcs.append(lambda_code)
+            return lambda_fn_name
 
         if isinstance(expr, PipeExpr):
             left_c = self._gen_expr(expr.left)
@@ -430,7 +660,11 @@ class Codegen:
         if isinstance(expr, BinOp):
             left = self._gen_expr(expr.left)
             right = self._gen_expr(expr.right)
+            l_type = self._infer_expr_type(expr.left)
+            r_type = self._infer_expr_type(expr.right)
             op = expr.op
+            if l_type == "str" and r_type == "str" and op == "+":
+                return f"kol_str_concat({left}, {right})"
             if op == "and": op = "&&"
             elif op == "or": op = "||"
             elif op == "mod": op = "%"
@@ -450,12 +684,21 @@ class Codegen:
             return f"({res_var}.ok ? {res_var}.val_int : {d_str})"
 
         if isinstance(expr, FieldAccess):
+            if isinstance(expr.target, Ident):
+                t_name = expr.target.name
+                if t_name in self.enum_defs:
+                    return f"{t_name}_{expr.field_name}"
+                elif t_name == "self":
+                    return f"(self->{expr.field_name})"
             target = self._gen_expr(expr.target)
             return f"({target}.{expr.field_name})"
 
         if isinstance(expr, IndexExpr):
             target = self._gen_expr(expr.target)
             idx = self._gen_expr(expr.index)
+            target_t = self._infer_expr_type(expr.target)
+            if target_t == "KolMap_si":
+                return f"kol_map_si_get(&{target}, {idx})"
             return f"(*((int64_t*)kol_array_get(&{target}, {idx}, \"{self.filename}\", {expr.location.line if expr.location else 0})))"
 
         if isinstance(expr, ListExpr):
@@ -467,6 +710,15 @@ class Codegen:
                 self._emit(f"int64_t {tmp_elem} = {elem_c};")
                 self._emit(f"kol_array_push(&{arr_var}, &{tmp_elem});")
             return arr_var
+
+        if isinstance(expr, MapExpr):
+            map_var = self._temp_var("map")
+            self._emit(f"KolMap_si {map_var} = kol_map_si_create({len(expr.entries)});")
+            for entry in expr.entries:
+                k_c = self._gen_expr(entry.key)
+                v_c = self._gen_expr(entry.value)
+                self._emit(f"kol_map_si_set(&{map_var}, {k_c}, {v_c});")
+            return map_var
 
         if isinstance(expr, CallExpr):
             if isinstance(expr.callee, Ident) and expr.callee.name == "print":
@@ -483,21 +735,79 @@ class Codegen:
                     return f"kol_print_int({arg_c})"
                 return 'printf("\\n")'
 
-            callee_name = self._gen_expr(expr.callee)
             if isinstance(expr.callee, Ident):
-                callee_name = f"_kol_fn_{expr.callee.name}"
+                fn_name = expr.callee.name
+
+                # Generic monomorphization call instantiation
+                if fn_name in self.generic_func_defs:
+                    g_decl = self.generic_func_defs[fn_name]
+                    arg0 = expr.args[0] if expr.args else IntLit(0)
+                    arg_t = self._infer_expr_type(arg0)
+                    c_type = "int64_t"
+                    suffix = "int"
+                    if arg_t == "float":
+                        c_type = "double"
+                        suffix = "float"
+
+                    inst_key = (fn_name, suffix)
+                    inst_fn_name = f"_kol_fn_{fn_name}_{suffix}"
+                    if inst_key not in self.generic_instances:
+                        self.generic_instances.add(inst_key)
+                        # Build specialized C function
+                        p_code = []
+                        for p in g_decl.params:
+                            p_code.append(f"{c_type} {p.name}")
+                        p_str = ", ".join(p_code)
+                        mono_code = f"{c_type} {inst_fn_name}({p_str}) {{\n"
+                        for s in g_decl.body:
+                            if isinstance(s, ReturnStmt) and s.value:
+                                mono_code += f"    return ({self._gen_expr(s.value)});\n"
+                            elif isinstance(s, IfStmt):
+                                cond_c = self._gen_expr(s.condition)
+                                then_v = self._gen_expr(s.then_branch[0].value) if isinstance(s.then_branch[0], ReturnStmt) else "0"
+                                mono_code += f"    if ({cond_c}) return {then_v};\n"
+                        mono_code += "}\n"
+                        self.helper_funcs.append(mono_code)
+
+                    arg_strs = [self._gen_expr(a) for a in expr.args]
+                    return f"{inst_fn_name}({', '.join(arg_strs)})"
+
+                # Tagged union enum constructor
+                for enum_name, enum_decl in self.enum_defs.items():
+                    for v in enum_decl.variants:
+                        if v.name == fn_name:
+                            init_var = self._temp_var(f"enum_{fn_name}")
+                            self._emit(f"{enum_name} {init_var};")
+                            self._emit(f"{init_var}.tag = {enum_name}_{fn_name};")
+                            for idx_arg, (arg_name, arg_expr) in enumerate(expr.named_args):
+                                val_c = self._gen_expr(arg_expr)
+                                self._emit(f"{init_var}.data.{fn_name}.{arg_name} = {val_c};")
+                            return init_var
+
+                callee_name = f"_kol_fn_{fn_name}"
+
+            else:
+                callee_name = self._gen_expr(expr.callee)
 
             arg_strs = [self._gen_expr(a) for a in expr.args]
             return f"{callee_name}({', '.join(arg_strs)})"
 
         if isinstance(expr, MethodCallExpr):
             obj = self._gen_expr(expr.object)
+            obj_t = self._infer_expr_type(expr.object)
+
             if expr.method_name == "upper":
                 return f"kol_str_upper({obj})"
             elif expr.method_name == "lower":
                 return f"kol_str_lower({obj})"
             elif expr.method_name == "trim":
                 return f"kol_str_trim({obj})"
+
+            if obj_t in self.struct_fields:
+                arg_strs = [self._gen_expr(a) for a in expr.args]
+                args_all = [f"&{obj}"] + arg_strs
+                return f"_kol_method_{obj_t}_{expr.method_name}({', '.join(args_all)})"
+
             arg_strs = [self._gen_expr(a) for a in expr.args]
             args_all = [f"&{obj}"] + arg_strs
             return f"_kol_method_{expr.method_name}({', '.join(args_all)})"
@@ -529,4 +839,16 @@ class Codegen:
             fn_name = expr.callee.name
             if fn_name in self.func_ret_types:
                 return self.func_ret_types[fn_name]
+            if fn_name in self.generic_func_defs:
+                if expr.args:
+                    return self._infer_expr_type(expr.args[0])
+            if fn_name in self.struct_fields:
+                return fn_name
+            if fn_name in self.enum_defs:
+                return fn_name
+        if isinstance(expr, MapExpr):
+            return "KolMap_si"
+        if isinstance(expr, MethodCallExpr):
+            if expr.method_name in ["upper", "lower", "trim", "greet"]:
+                return "str"
         return "int"
