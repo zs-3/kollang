@@ -1,0 +1,25 @@
+interface Describable
+    fn describe() -> str
+end
+type Dog
+    name: str
+    impl Describable
+        fn describe() -> str
+            return "Dog: {self.name}"
+        end
+    end
+end
+type Cat
+    name: str
+    impl Describable
+        fn describe() -> str
+            return "Cat: {self.name}"
+        end
+    end
+end
+fn main()
+    let d = Dog(name: "Rex")
+    let c = Cat(name: "Whiskers")
+    print(d.describe())
+    print(c.describe())
+end

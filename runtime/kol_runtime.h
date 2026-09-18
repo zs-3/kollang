@@ -81,6 +81,102 @@ static inline size_t kol_str_len(KolStr s) {
     return s.heap.ptr ? s.heap.ptr->len : 0;
 }
 
+static inline const char* kol_str_cstr_tmp(KolStr s) {
+    static _Thread_local char bufs[4][256];
+    static _Thread_local int buf_idx = 0;
+    buf_idx = (buf_idx + 1) % 4;
+    const char* cs = kol_str_cstr(&s);
+    snprintf(bufs[buf_idx], sizeof(bufs[buf_idx]), "%s", cs);
+    return bufs[buf_idx];
+}
+
+static inline bool kol_str_contains(KolStr s, KolStr sub) {
+    const char* cs = kol_str_cstr(&s);
+    const char* csub = kol_str_cstr(&sub);
+    return strstr(cs, csub) != NULL;
+}
+
+static inline bool kol_str_starts_with(KolStr s, KolStr prefix) {
+    const char* cs = kol_str_cstr(&s);
+    const char* cp = kol_str_cstr(&prefix);
+    size_t lp = kol_str_len(prefix);
+    size_t ls = kol_str_len(s);
+    if (lp > ls) return false;
+    return strncmp(cs, cp, lp) == 0;
+}
+
+static inline bool kol_str_ends_with(KolStr s, KolStr suffix) {
+    const char* cs = kol_str_cstr(&s);
+    const char* csuf = kol_str_cstr(&suffix);
+    size_t lsuf = kol_str_len(suffix);
+    size_t ls = kol_str_len(s);
+    if (lsuf > ls) return false;
+    return strcmp(cs + (ls - lsuf), csuf) == 0;
+}
+
+static inline KolStr kol_str_replace(KolStr s, KolStr old_s, KolStr new_s) {
+    const char* cs = kol_str_cstr(&s);
+    const char* cold = kol_str_cstr(&old_s);
+    const char* cnew = kol_str_cstr(&new_s);
+    size_t len_old = kol_str_len(old_s);
+    size_t len_new = kol_str_len(new_s);
+    if (len_old == 0) return kol_str_create(cs);
+
+    int count = 0;
+    const char* tmp = cs;
+    while ((tmp = strstr(tmp, cold))) {
+        count++;
+        tmp += len_old;
+    }
+
+    size_t new_len = strlen(cs) + count * (len_new - len_old);
+    char* buf = (char*)malloc(new_len + 1);
+    char* p = buf;
+    while (*cs) {
+        if (strstr(cs, cold) == cs) {
+            strcpy(p, cnew);
+            p += len_new;
+            cs += len_old;
+        } else {
+            *p++ = *cs++;
+        }
+    }
+    *p = '\0';
+    KolStr res = kol_str_create(buf);
+    free(buf);
+    return res;
+}
+
+static inline KolStr kol_str_repeat(KolStr s, int64_t n) {
+    if (n <= 0) return kol_str_create("");
+    const char* cs = kol_str_cstr(&s);
+    size_t len = kol_str_len(s);
+    size_t total = len * n;
+    char* buf = (char*)malloc(total + 1);
+    for (int64_t i = 0; i < n; i++) {
+        memcpy(buf + (i * len), cs, len);
+    }
+    buf[total] = '\0';
+    KolStr res = kol_str_create(buf);
+    free(buf);
+    return res;
+}
+
+static inline KolStr kol_str_slice(KolStr s, int64_t from, int64_t to) {
+    const char* cs = kol_str_cstr(&s);
+    size_t len = kol_str_len(s);
+    if (from < 0) from = 0;
+    if ((size_t)from >= len || to <= from) return kol_str_create("");
+    if ((size_t)to > len) to = (int64_t)len;
+    size_t new_len = to - from;
+    char* buf = (char*)malloc(new_len + 1);
+    memcpy(buf, cs + from, new_len);
+    buf[new_len] = '\0';
+    KolStr res = kol_str_create(buf);
+    free(buf);
+    return res;
+}
+
 static inline void kol_arc_retain_str(KolStr s) {
     if (s.is_heap && s.heap.ptr) {
         s.heap.ptr->ref_count++;
@@ -199,6 +295,41 @@ static inline KolOption kol_option_some_str(KolStr v) { KolOption o; o.has_value
 static inline KolOption kol_option_none(void) { KolOption o; o.has_value = false; return o; }
 
 typedef struct {
+    bool has_value;
+    int64_t value;
+} KolOptInt;
+
+typedef struct {
+    bool has_value;
+    KolStr value;
+} KolOptStr;
+
+typedef struct {
+    bool has_value;
+    double value;
+} KolOptFloat;
+
+static inline KolOptInt kol_opt_int_some(int64_t v) {
+    return (KolOptInt){true, v};
+}
+static inline KolOptInt kol_opt_int_none(void) {
+    return (KolOptInt){false, 0};
+}
+static inline KolOptStr kol_opt_str_some(KolStr v) {
+    return (KolOptStr){true, v};
+}
+static inline KolOptStr kol_opt_str_none(void) {
+    KolStr s = kol_str_create("");
+    return (KolOptStr){false, s};
+}
+static inline KolOptFloat kol_opt_float_some(double v) {
+    return (KolOptFloat){true, v};
+}
+static inline KolOptFloat kol_opt_float_none(void) {
+    return (KolOptFloat){false, 0.0};
+}
+
+typedef struct {
     bool ok;
     union {
         int64_t val_int;
@@ -312,6 +443,45 @@ static inline void kol_array_free(kol_array_t* arr) {
     }
     arr->len = 0;
     arr->capacity = 0;
+}
+
+static inline void kol_array_pop(kol_array_t* a) {
+    if (a->len > 0) {
+        a->len--;
+    }
+}
+
+static inline void kol_array_reverse(kol_array_t* a) {
+    if (a->len <= 1 || !a->data) return;
+    size_t i = 0;
+    size_t j = a->len - 1;
+    char* buf = (char*)malloc(a->elem_size);
+    while (i < j) {
+        char* pi = (char*)a->data + (i * a->elem_size);
+        char* pj = (char*)a->data + (j * a->elem_size);
+        memcpy(buf, pi, a->elem_size);
+        memcpy(pi, pj, a->elem_size);
+        memcpy(pj, buf, a->elem_size);
+        i++;
+        j--;
+    }
+    free(buf);
+}
+
+static inline bool kol_array_contains_int(kol_array_t* a, int64_t val) {
+    for (size_t i = 0; i < a->len; i++) {
+        int64_t v = *((int64_t*)((char*)a->data + (i * a->elem_size)));
+        if (v == val) return true;
+    }
+    return false;
+}
+
+static inline bool kol_array_contains_str(kol_array_t* a, KolStr val) {
+    for (size_t i = 0; i < a->len; i++) {
+        KolStr v = *((KolStr*)((char*)a->data + (i * a->elem_size)));
+        if (kol_str_eq(v, val)) return true;
+    }
+    return false;
 }
 
 /* ============================================================================

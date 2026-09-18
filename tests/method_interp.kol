@@ -1,0 +1,14 @@
+type Greeter
+    name: str
+    fn hello() -> str
+        return "Hello {self.name}"
+    end
+    fn count() -> int
+        return 42
+    end
+end
+fn main()
+    let g = Greeter(name: "Kol")
+    print("Says: {g.hello()}")
+    print("Count: {g.count()}")
+end

@@ -1,0 +1,8 @@
+let s = "Hello World"
+print(s.upper())
+print(s.lower())
+print(s.len())
+print(s.contains("World"))
+print(s.starts_with("Hello"))
+print(s.ends_with("World"))
+print(s.replace("World", "Kol"))
