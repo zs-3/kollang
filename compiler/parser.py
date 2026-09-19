@@ -9,6 +9,7 @@ class Parser:
         self.tokens = tokens
         self.filename = filename
         self.pos = 0
+        self.nested_type_map = {}
 
     def _curr(self) -> Token:
         if self.pos < len(self.tokens):
@@ -130,6 +131,11 @@ class Parser:
 
         if self._check(TokenType.ARENA):
             return self._parse_arena_stmt()
+
+        if self._check(TokenType.ASSERT):
+            self._advance()
+            cond = self._parse_expr()
+            return AssertStmt(condition=cond, location=loc)
 
         if self._check(TokenType.TEST):
             return self._parse_test_block()
@@ -328,7 +334,25 @@ class Parser:
         methods = []
         impls = []
 
+        constants = []
+        nested_types = []
         while not self._check(TokenType.END, TokenType.EOF):
+            if self._check(TokenType.TYPE):
+                inner = self._parse_type_decl()
+                inner.c_name = f"{name}_{inner.name}"
+                nested_types.append(inner)
+                self.nested_type_map[f"{name}.{inner.name}"] = inner
+                self._skip_newlines()
+                continue
+            if self._check(TokenType.CONST):
+                self._advance()
+                c_loc = self._curr().location
+                c_name_tok = self._expect(TokenType.IDENT, "constant name")
+                self._expect(TokenType.ASSIGN, "=")
+                c_val = self._parse_expr()
+                self._skip_newlines()
+                constants.append(VarDecl(name=c_name_tok.value, is_const=True, value=c_val, location=c_loc))
+                continue
             if self._check(TokenType.FN, TokenType.PURE, TokenType.TASK):
                 methods.append(self._parse_function_decl())
             elif self._check(TokenType.IMPL):
@@ -342,7 +366,7 @@ class Parser:
             self._skip_newlines()
 
         self._expect(TokenType.END, "end for type declaration")
-        return TypeDecl(name=name, fields=fields, methods=methods, impls=impls, generic_params=gen_params, location=loc)
+        return TypeDecl(name=name, fields=fields, methods=methods, impls=impls, constants=constants, nested_types=nested_types, generic_params=gen_params, location=loc)
 
     def _parse_enum_decl(self) -> EnumDecl:
         loc = self._curr().location
@@ -647,8 +671,9 @@ class Parser:
 
     def _parse_multiplication(self) -> ASTNode:
         expr = self._parse_unary()
-        while self._check(TokenType.STAR, TokenType.SLASH, TokenType.MOD, TokenType.POWER):
-            op = self._advance().value
+        while self._check(TokenType.STAR, TokenType.SLASH, TokenType.MOD, TokenType.PERCENT, TokenType.POWER):
+            op_tok = self._advance()
+            op = "%" if op_tok.type in (TokenType.MOD, TokenType.PERCENT) else op_tok.value
             right = self._parse_unary()
             expr = BinOp(left=expr, op=op, right=right, location=expr.location)
         return expr
@@ -705,12 +730,22 @@ class Parser:
                 member = self._expect(TokenType.IDENT, "field or method name").value
                 if self._match(TokenType.LPAREN):
                     args = []
+                    named_args = []
                     while not self._check(TokenType.RPAREN, TokenType.EOF):
-                        args.append(self._parse_expr())
+                        if self._check(TokenType.IDENT) and self._peek().type == TokenType.COLON:
+                            arg_name = self._advance().value
+                            self._advance()
+                            arg_val = self._parse_expr()
+                            named_args.append((arg_name, arg_val))
+                        else:
+                            args.append(self._parse_expr())
                         if not self._check(TokenType.RPAREN):
                             self._expect(TokenType.COMMA, ",")
                     self._expect(TokenType.RPAREN, ")")
-                    expr = MethodCallExpr(object=expr, method_name=member, args=args, location=loc)
+                    if isinstance(expr, Ident) and f"{expr.name}.{member}" in self.nested_type_map:
+                        expr = CallExpr(callee=FieldAccess(target=expr, field_name=member, location=loc), args=args, named_args=named_args, location=loc)
+                    else:
+                        expr = MethodCallExpr(object=expr, method_name=member, args=args, location=loc)
                 else:
                     expr = FieldAccess(target=expr, field_name=member, location=loc)
 

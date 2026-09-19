@@ -1,0 +1,17 @@
+enum Shape
+    Circle(radius: float)
+    Rect(width: float, height: float)
+end
+fn area(s: Shape) -> float
+    match s
+        Circle(r)    -> 3.14159 * r * r
+        Rect(w, h)   -> w * h
+        _            -> 0.0
+    end
+end
+fn main()
+    let c = Circle(radius: 5.0)
+    let r = Rect(width: 4.0, height: 3.0)
+    print(area(c))
+    print(area(r))
+end

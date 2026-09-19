@@ -61,9 +61,12 @@ class StructField(ASTNode):
 @dataclass
 class TypeDecl(ASTNode):
     name: str = ""
+    c_name: str = ""
     fields: List[StructField] = field(default_factory=list)
     methods: List[FunctionDecl] = field(default_factory=list)
     impls: List['ImplBlock'] = field(default_factory=list)
+    constants: List[VarDecl] = field(default_factory=list)
+    nested_types: List['TypeDecl'] = field(default_factory=list)
     generic_params: List[str] = field(default_factory=list)
 
 @dataclass
@@ -156,6 +159,11 @@ class ArenaStmt(ASTNode):
 class TestBlock(ASTNode):
     name: str = ""
     body: List[ASTNode] = field(default_factory=list)
+
+@dataclass
+class AssertStmt(ASTNode):
+    condition: ASTNode = field(default_factory=ASTNode)
+    expr_text: str = ""
 
 @dataclass
 class WhenStmt(ASTNode):

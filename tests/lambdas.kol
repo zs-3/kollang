@@ -1,0 +1,5 @@
+let add_one = x -> x + 1
+let mul_two = x -> x * 2
+print(add_one(5))
+print(mul_two(4))
+print(add_one(mul_two(3)))

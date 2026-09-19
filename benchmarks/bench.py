@@ -89,14 +89,49 @@ def run_benchmarks():
     res_kol_str = subprocess.run(["./bench_str"], capture_output=True, text=True)
     t_kol_str = time.perf_counter() - t0
 
+    # --- 4. Method Dispatch ---
+    # Python
+    py_disp_code = "class Counter:\n    def __init__(self):\n        self.value = 0\n    def increment(self):\n        self.value += 1\n    def get(self):\n        return self.value\nc = Counter()\nfor _ in range(1000000):\n    c.increment()\nprint(c.get())\n"
+    with open("/tmp/bench_disp.py", "w") as f:
+        f.write(py_disp_code)
+    t0 = time.perf_counter()
+    res_py_disp = subprocess.run(["python3", "/tmp/bench_disp.py"], capture_output=True, text=True)
+    t_py_disp = time.perf_counter() - t0
+
+    # C
+    c_disp_code = '#include <stdio.h>\n#include <stdint.h>\ntypedef struct { int64_t value; } Counter;\nvoid increment(Counter* c) { c->value++; }\nint64_t get_val(Counter* c) { return c->value; }\nint main(void) {\n    Counter c = {0};\n    for (int64_t i = 0; i < 1000000; i++)\n        increment(&c);\n    printf("%lld\\n", (long long)get_val(&c));\n    return 0;\n}\n'
+    with open("/tmp/bench_disp.c", "w") as f:
+        f.write(c_disp_code)
+    subprocess.run(["gcc", "-O2", "-o", "/tmp/bench_disp_c", "/tmp/bench_disp.c"])
+    t0 = time.perf_counter()
+    res_c_disp = subprocess.run(["/tmp/bench_disp_c"], capture_output=True, text=True)
+    t_c_disp = time.perf_counter() - t0
+
+    # Kol
+    kol_disp_code = "type Counter\n    value: int\n    fn increment()\n        self.value = self.value + 1\n    end\n    fn get() -> int\n        return self.value\n    end\nend\nfn main()\n    mut c = Counter(value: 0)\n    mut i = 0\n    while i < 1000000\n        c.increment()\n        i = i + 1\n    end\n    print(c.get())\nend\n"
+    with open("/tmp/bench_disp.kol", "w") as f:
+        f.write(kol_disp_code)
+    subprocess.run(["python3", "kol.py", "build", "--release", "/tmp/bench_disp.kol"])
+    t0 = time.perf_counter()
+    res_kol_disp = subprocess.run(["./bench_disp"], capture_output=True, text=True)
+    t_kol_disp = time.perf_counter() - t0
+
+
+    # --- 5. Compile Time ---
+    t0 = time.perf_counter()
+    subprocess.run(["python3", "kol.py", "build", "tests/fibonacci.kol"], capture_output=True)
+    compile_ms = (time.perf_counter() - t0) * 1000
+
+
     # Cleanup temporary built binaries
-    for tmp_bin in ["bench_fib", "bench_loop", "bench_str", "bench_fib.c", "bench_loop.c", "bench_str.c"]:
+    for tmp_bin in ["bench_fib", "bench_loop", "bench_str", "bench_disp", "bench_fib.c", "bench_loop.c", "bench_str.c", "bench_disp.c"]:
         if os.path.exists(tmp_bin):
             os.remove(tmp_bin)
 
     ratio_fib = f"{t_kol_fib / max(t_c_fib, 0.000001):.2f}x"
     ratio_loop = f"{t_kol_loop / max(t_c_loop, 0.000001):.2f}x"
     ratio_str = f"{t_kol_str / max(t_c_str, 0.000001):.2f}x"
+    ratio_disp = f"{t_kol_disp / max(t_c_disp, 0.000001):.2f}x"
 
     results_md = f"""## Real Benchmark Results — {time.strftime("%Y-%m-%d")}
 All times in seconds. Lower is better.
@@ -106,6 +141,9 @@ All times in seconds. Lower is better.
 | fibonacci_30 | {t_kol_fib:.4f}s | {t_py_fib:.4f}s | {t_c_fib:.4f}s | {ratio_fib} |
 | loop_10million | {t_kol_loop:.4f}s | {t_py_loop:.4f}s | {t_c_loop:.4f}s | {ratio_loop} |
 | string_build | {t_kol_str:.4f}s | {t_py_str:.4f}s | {t_c_str:.4f}s | {ratio_str} |
+| method_dispatch | {t_kol_disp:.4f}s | {t_py_disp:.4f}s | {t_c_disp:.4f}s | {ratio_disp} |
+
+Compile time (fibonacci.kol): {compile_ms:.0f}ms
 """
 
     with open("benchmarks/results.md", "w") as f:

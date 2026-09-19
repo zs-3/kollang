@@ -1,0 +1,16 @@
+fn find_name(id: int) -> str?
+    if id == 1
+        return "Alice"
+    end
+    return none
+end
+fn find_num(id: int) -> int?
+    if id == 1
+        return 42
+    end
+    return none
+end
+print(find_name(1) or "unknown")
+print(find_name(99) or "unknown")
+print(find_num(1) or 0)
+print(find_num(99) or 0)

@@ -1,0 +1,8 @@
+let names = ["Alice", "Bob", "Charlie"]
+for name in names
+    print(name)
+end
+let nums = [10, 20, 30]
+for i, n in nums
+    print("{i}: {n}")
+end

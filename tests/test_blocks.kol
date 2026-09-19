@@ -1,0 +1,14 @@
+fn add(a: int, b: int) -> int
+    return a + b
+end
+
+test "addition works"
+    assert add(2, 3) == 5
+    assert add(0, 0) == 0
+    assert add(-1, 1) == 0
+end
+
+test "negatives"
+    assert add(-5, -3) == -8
+    assert add(-1, -1) == -2
+end
