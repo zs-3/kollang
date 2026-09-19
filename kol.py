@@ -12,7 +12,7 @@ from compiler.parser import Parser
 from compiler.codegen import Codegen
 from compiler.analyser import Analyser
 from compiler.errors import KolError
-from compiler.ast_nodes import ASTNode, Program, ScriptProgram
+from compiler.ast_nodes import ASTNode, Program, ScriptProgram, UseStmt
 
 def get_c_compiler() -> str:
     for cc in ["gcc", "clang", "tcc"]:
@@ -49,13 +49,46 @@ def resolve_imports_and_parse(filepath: str, visited: set) -> List[ASTNode]:
         stmts_or_decls = ast.declarations
 
     for stmt in stmts_or_decls:
-        if hasattr(stmt, 'path') and getattr(stmt, 'path', ''):
-            import_path = getattr(stmt, 'path')
+        if isinstance(stmt, UseStmt) and stmt.path:
+            import_path = stmt.path
+            dir_path = os.path.dirname(filepath)
+            stmt_loc = getattr(stmt, 'location', None)
+
+            resolved_file = None
+            tried_paths = []
+
             if import_path.startswith("./") or import_path.startswith("../"):
-                dir_path = os.path.dirname(filepath)
                 target_file = os.path.join(dir_path, import_path)
-                imported_nodes = resolve_imports_and_parse(target_file, visited)
+                if os.path.exists(target_file) and os.path.isfile(target_file):
+                    resolved_file = target_file
+                elif os.path.exists(target_file + ".kol") and os.path.isfile(target_file + ".kol"):
+                    resolved_file = target_file + ".kol"
+                else:
+                    tried_paths = [target_file, target_file + ".kol"]
+            else:
+                local_target = os.path.join(dir_path, import_path)
+                if os.path.exists(local_target) and os.path.isfile(local_target):
+                    resolved_file = local_target
+                elif os.path.exists(local_target + ".kol") and os.path.isfile(local_target + ".kol"):
+                    resolved_file = local_target + ".kol"
+                else:
+                    parts = import_path.split(".")
+                    if len(parts) == 2 and parts[0] == "std":
+                        std_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "std"))
+                        std_target = os.path.join(std_dir, f"{parts[1]}.kol")
+                        if os.path.exists(std_target) and os.path.isfile(std_target):
+                            resolved_file = std_target
+                        else:
+                            tried_paths = [std_target]
+                    else:
+                        tried_paths = [local_target, local_target + ".kol"]
+
+            if resolved_file:
+                imported_nodes = resolve_imports_and_parse(resolved_file, visited)
                 nodes.extend(imported_nodes)
+            else:
+                tried_str = ", ".join(tried_paths)
+                raise KolError(f"Cannot resolve import '{import_path}'. Tried: {tried_str}", location=stmt_loc)
         else:
             nodes.append(stmt)
 
