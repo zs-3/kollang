@@ -52,7 +52,20 @@ def run_tests():
             print("PASSED (No .expected file)")
             passed += 1
 
-    print(f"\nSummary: {passed} passed, {failed} failed out of {len(test_files)} tests.")
+    py_tests = ["tests/test_invalid_import.py", "tests/unit_feature_guards.py"]
+    for py_test in py_tests:
+        print(f"Running {py_test}...", end=" ")
+        res = subprocess.run([sys.executable, py_test], capture_output=True, text=True)
+        if res.returncode == 0:
+            print("PASSED")
+            passed += 1
+        else:
+            print("FAILED (Python Test Failed)")
+            print(res.stdout + res.stderr)
+            failed += 1
+
+    total_tests = len(test_files) + len(py_tests)
+    print(f"\nSummary: {passed} passed, {failed} failed out of {total_tests} tests.")
     if failed > 0:
         sys.exit(1)
 

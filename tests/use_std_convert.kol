@@ -1,0 +1,5 @@
+use std.convert
+print(int_to_str(42))
+print(float_to_str(3.14))
+print(bool_to_str(true))
+print(bool_to_str(false))

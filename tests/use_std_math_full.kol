@@ -1,0 +1,9 @@
+use std.math
+print(abs_int(-42))
+print(max_int(3, 7))
+print(factorial(5))
+print(is_even(4))
+print(pow_int(2, 8))
+print(gcd(48, 18))
+print(is_prime(7))
+print(sum_to(10))

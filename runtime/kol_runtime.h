@@ -203,7 +203,11 @@ static inline bool kol_str_eq(KolStr a, KolStr b) {
     size_t la = kol_str_len(a);
     size_t lb = kol_str_len(b);
     if (la != lb) return false;
-    return strcmp(kol_str_cstr(&a), kol_str_cstr(&b)) == 0;
+    return memcmp(kol_str_cstr(&a), kol_str_cstr(&b), la) == 0;
+}
+
+static inline bool kol_str_neq(KolStr a, KolStr b) {
+    return !kol_str_eq(a, b);
 }
 
 static inline KolStr kol_str_concat(KolStr a, KolStr b) {

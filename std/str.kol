@@ -1,1 +1,54 @@
--- std/str.kol
+fn is_empty(s: str) -> bool
+    return s.len() == 0
+end
+
+fn repeat_str(s: str, n: int) -> str
+    mut result = ""
+    mut i = 0
+    while i < n
+        result = result + s
+        i = i + 1
+    end
+    return result
+end
+
+fn str_join(sep: str, parts: [str]) -> str
+    mut result = ""
+    mut i = 0
+    for part in parts
+        if i > 0
+            result = result + sep
+        end
+        result = result + part
+        i = i + 1
+    end
+    return result
+end
+
+fn to_upper(s: str) -> str
+    return s.upper()
+end
+
+fn to_lower(s: str) -> str
+    return s.lower()
+end
+
+fn trim_str(s: str) -> str
+    return s.trim()
+end
+
+fn str_len(s: str) -> int
+    return s.len()
+end
+
+fn str_contains(s: str, sub: str) -> bool
+    return s.contains(sub)
+end
+
+fn starts_with(s: str, prefix: str) -> bool
+    return s.starts_with(prefix)
+end
+
+fn ends_with(s: str, suffix: str) -> bool
+    return s.ends_with(suffix)
+end

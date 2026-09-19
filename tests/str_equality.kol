@@ -1,0 +1,14 @@
+let a = "hello"
+let b = "hello"
+let c = "world"
+print(a == b)
+print(a == c)
+print(a != c)
+fn check(s: str) -> str
+    if s == "yes"
+        return "got yes"
+    end
+    return "got other"
+end
+print(check("yes"))
+print(check("no"))
