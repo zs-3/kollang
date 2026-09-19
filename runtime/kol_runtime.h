@@ -462,6 +462,36 @@ typedef struct {
     size_t elem_size;
 } kol_array_t;
 
+static inline kol_array_t kol_array_create(size_t elem_size, size_t initial_capacity);
+static inline void kol_array_push(kol_array_t* arr, const void* elem);
+
+static inline kol_array_t kol_str_split(KolStr s, KolStr sep) {
+    kol_array_t arr = kol_array_create(sizeof(KolStr), 4);
+    const char* cs = kol_str_cstr(&s);
+    const char* csep = kol_str_cstr(&sep);
+    size_t seplen = kol_str_len(sep);
+    if (seplen == 0) {
+        KolStr item = kol_str_create(cs);
+        kol_array_push(&arr, &item);
+        return arr;
+    }
+    const char* start = cs;
+    const char* found;
+    while ((found = strstr(start, csep)) != NULL) {
+        size_t part_len = found - start;
+        char* buf = (char*)malloc(part_len + 1);
+        memcpy(buf, start, part_len);
+        buf[part_len] = '\0';
+        KolStr item = kol_str_create(buf);
+        free(buf);
+        kol_array_push(&arr, &item);
+        start = found + seplen;
+    }
+    KolStr item = kol_str_create(start);
+    kol_array_push(&arr, &item);
+    return arr;
+}
+
 static inline kol_array_t kol_array_create(size_t elem_size, size_t initial_capacity) {
     kol_array_t arr;
     arr.elem_size = elem_size;

@@ -1,1 +1,12 @@
--- std/convert.kol
+fn int_to_str(n: int) -> str
+    return "{n}"
+end
+
+fn float_to_str(f: float) -> str
+    return "{f}"
+end
+
+fn bool_to_str(b: bool) -> str
+    if b return "true" end
+    return "false"
+end
