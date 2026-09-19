@@ -1,0 +1,8 @@
+fn count_words(text: str) -> int
+    let words = text.split(" ")
+    return words.len()
+end
+fn main()
+    let sentence = "the quick brown fox jumps"
+    print(count_words(sentence))
+end
