@@ -1,1 +1,43 @@
--- std/list.kol
+fn list_len(lst: [int]) -> int
+    return lst.len()
+end
+
+fn list_contains_int(lst: [int], val: int) -> bool
+    return lst.contains(val)
+end
+
+fn sum_list(nums: [int]) -> int
+    mut total = 0
+    for n in nums
+        total = total + n
+    end
+    return total
+end
+
+fn product_list(nums: [int]) -> int
+    mut result = 1
+    for n in nums
+        result = result * n
+    end
+    return result
+end
+
+fn max_in_list(nums: [int]) -> int
+    mut best = nums[0]
+    for n in nums
+        if n > best
+            best = n
+        end
+    end
+    return best
+end
+
+fn min_in_list(nums: [int]) -> int
+    mut best = nums[0]
+    for n in nums
+        if n < best
+            best = n
+        end
+    end
+    return best
+end
