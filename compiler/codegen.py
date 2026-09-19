@@ -141,6 +141,7 @@ class Codegen:
                         elif p.type_annot.name == "float": pt = "double"
                         elif p.type_annot.name == "bool": pt = "bool"
                         elif p.type_annot.name == "int": pt = "int64_t"
+                        elif p.type_annot.name == "list": pt = "kol_array_t"
                         else: pt = p.type_annot.name
                     params_code.append(f"{pt} {p.name}")
                 p_str = ", ".join(params_code)
@@ -246,6 +247,7 @@ class Codegen:
                         elif p.type_annot.name == "float": pt = "double"
                         elif p.type_annot.name == "bool": pt = "bool"
                         elif p.type_annot.name == "int": pt = "int64_t"
+                        elif p.type_annot.name == "list": pt = "kol_array_t"
                         else: pt = p.type_annot.name
                     params_code.append(f"{pt} {p.name}")
                 p_str = ", ".join(params_code) if params_code else "void"
@@ -383,6 +385,7 @@ class Codegen:
                         elif p.type_annot.name == "float": pt = "double"
                         elif p.type_annot.name == "bool": pt = "bool"
                         elif p.type_annot.name == "int": pt = "int64_t"
+                        elif p.type_annot.name == "list": pt = "kol_array_t"
                         else: pt = p.type_annot.name
                     params_code.append(f"{pt} {p.name}")
                 p_str = ", ".join(params_code) if params_code else "void"
@@ -871,6 +874,13 @@ class Codegen:
                 elif pn == "float": pt = "double"
                 elif pn == "bool": pt = "bool"
                 elif pn == "str": pt = "KolStr"
+                elif pn == "list":
+                    pt = "kol_array_t"
+                    if p.type_annot.generic_args:
+                        elem_t = p.type_annot.generic_args[0].name
+                        pk = f"list_{elem_t}"
+                    else:
+                        pk = "list_int"
                 elif pn in self.struct_fields or pn in self.enum_defs: pt = pn
             self.var_types[p.name] = pk
             p_safe = self._safe_c_name(p.name)
