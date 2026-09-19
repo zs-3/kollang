@@ -17,6 +17,7 @@ class Codegen:
         self.code: List[str] = []
         self.type_decls: List[str] = []
         self.proto_decls: List[str] = []
+        self.global_consts: List[str] = []
         self.helper_funcs: List[str] = []
         self.indent_level = 0
         self.temp_var_count = 0
@@ -167,6 +168,7 @@ class Codegen:
         self.code = []
         self.type_decls = []
         self.proto_decls = []
+        self.global_consts = []
         self.helper_funcs = []
 
         all_nodes = []
@@ -299,11 +301,12 @@ class Codegen:
                 self._emit("}")
 
         header_inc = '#include "kol_runtime.h"\n\n'
+        global_const_section = "\n".join(self.global_consts) + "\n\n" if self.global_consts else ""
         type_section = "\n".join(self.type_decls) + "\n\n" if self.type_decls else ""
         proto_section = "\n".join(self.proto_decls) + "\n\n" if self.proto_decls else ""
         helper_section = "\n".join(self.helper_funcs) + "\n\n" if self.helper_funcs else ""
 
-        full_code = header_inc + type_section + proto_section + helper_section + "\n".join(body_code)
+        full_code = header_inc + global_const_section + type_section + proto_section + helper_section + "\n".join(body_code)
         return full_code
 
     def generate_test_runner(self, program: ASTNode, source: str) -> str:
@@ -311,6 +314,7 @@ class Codegen:
         self.code = []
         self.type_decls = []
         self.proto_decls = []
+        self.global_consts = []
         self.helper_funcs = []
         self.indent_level = 0
         self.defer_stack = []
@@ -436,11 +440,12 @@ class Codegen:
         self._emit('}')
 
         header_inc = '#include <stdio.h>\n#include <stdbool.h>\n#include "kol_runtime.h"\n\nint _kol_test_failures = 0;\n\n'
+        global_const_section = "\n".join(self.global_consts) + "\n\n" if self.global_consts else ""
         type_section = "\n".join(self.type_decls) + "\n\n" if self.type_decls else ""
         proto_section = "\n".join(self.proto_decls) + "\n\n" if self.proto_decls else ""
         helper_section = "\n".join(self.helper_funcs) + "\n\n" if self.helper_funcs else ""
 
-        full_code = header_inc + type_section + proto_section + helper_section + "\n".join(body_code)
+        full_code = header_inc + global_const_section + type_section + proto_section + helper_section + "\n".join(body_code)
         return full_code
 
     def _emit_defers(self):
@@ -723,6 +728,37 @@ class Codegen:
                 self._emit(f"{expr};")
 
     def _gen_var_decl(self, decl: VarDecl, global_scope: bool = False):
+        if decl.is_const:
+            c_type = "int64_t"
+            if decl.type_annot:
+                tn = decl.type_annot.name
+                if tn == "float": c_type = "double"
+                elif tn == "str": c_type = "KolStr"
+                elif tn == "bool": c_type = "bool"
+                elif tn == "int": c_type = "int64_t"
+                else: c_type = tn
+            elif decl.value:
+                if isinstance(decl.value, FloatLit):
+                    c_type = "double"
+                elif isinstance(decl.value, (StrLit, StrInterp)):
+                    c_type = "KolStr"
+                elif isinstance(decl.value, BoolLit):
+                    c_type = "bool"
+                elif isinstance(decl.value, IntLit):
+                    c_type = "int64_t"
+                else:
+                    t = self._infer_expr_type(decl.value)
+                    if t == "float": c_type = "double"
+                    elif t == "str": c_type = "KolStr"
+                    elif t == "bool": c_type = "bool"
+                    else: c_type = "int64_t"
+            val_c = self._gen_expr(decl.value) if decl.value else "0"
+            line = f"static const {c_type} _kol_{decl.name} = {val_c};"
+            self.global_consts.append(line)
+            type_key = "float" if c_type == "double" else ("str" if c_type == "KolStr" else ("bool" if c_type == "bool" else "int"))
+            self.var_types[decl.name] = type_key
+            return
+
         if decl.value and isinstance(decl.value, LambdaExpr):
             self.lambda_count += 1
             lam_id = self.lambda_count
@@ -805,6 +841,19 @@ class Codegen:
                             type_key = e_name
                             type_str = e_name
                             break
+            elif isinstance(decl.value, MethodCallExpr):
+                obj_t = self._infer_expr_type(decl.value.object)
+                if obj_t == "str" and decl.value.method_name == "split":
+                    type_key = "list_str"
+                    type_str = "kol_array_t"
+                else:
+                    ret_t = self._infer_expr_type(decl.value)
+                    type_key = ret_t
+                    if ret_t == "str": type_str = "KolStr"
+                    elif ret_t == "float": type_str = "double"
+                    elif ret_t == "bool": type_str = "bool"
+                    elif ret_t.startswith("list"): type_str = "kol_array_t"
+                    else: type_str = "int64_t"
             elif isinstance(decl.value, AwaitExpr) and isinstance(decl.value.task_expr, CallExpr) and isinstance(decl.value.task_expr.callee, Ident):
                 fn_name = decl.value.task_expr.callee.name
                 if fn_name in self.func_ret_types:
@@ -1076,7 +1125,7 @@ class Codegen:
         if isinstance(expr, Ident):
             if expr.name in self.var_types:
                 return self._safe_c_name(expr.name)
-            return expr.name
+            return self._safe_c_name(expr.name)
 
         if isinstance(expr, LambdaExpr):
             self.lambda_count += 1
@@ -1294,9 +1343,12 @@ class Codegen:
                     inst_fn_name = f"_kol_fn_{fn_name}_{suffix}"
                     if inst_key not in self.generic_instances:
                         self.generic_instances.add(inst_key)
+                        saved_var_types = dict(self.var_types)
                         p_code = []
                         for p in g_decl.params:
-                            p_code.append(f"{c_type} {p.name}")
+                            self.var_types[p.name] = "float" if c_type == "double" else "int"
+                            p_safe = self._safe_c_name(p.name)
+                            p_code.append(f"{c_type} {p_safe}")
                         p_str = ", ".join(p_code)
                         mono_code = f"{c_type} {inst_fn_name}({p_str}) {{\n"
                         for s in g_decl.body:
@@ -1308,6 +1360,7 @@ class Codegen:
                                 mono_code += f"    if ({cond_c}) return {then_v};\n"
                         mono_code += "}\n"
                         self.helper_funcs.append(mono_code)
+                        self.var_types = saved_var_types
 
                     arg_strs = [self._gen_expr(a) for a in expr.args]
                     return f"{inst_fn_name}({', '.join(arg_strs)})"
@@ -1369,6 +1422,7 @@ class Codegen:
                 elif m == "replace": return f"kol_str_replace({obj}, {arg_strs[0]}, {arg_strs[1]})"
                 elif m == "repeat": return f"kol_str_repeat({obj}, {arg_strs[0]})"
                 elif m == "slice": return f"kol_str_slice({obj}, {arg_strs[0]}, {arg_strs[1]})"
+                elif m == "split": return f"kol_str_split({obj}, {arg_strs[0]})"
 
             if obj_t.startswith("list") or obj_t == "kol_array_t":
                 m = expr.method_name
