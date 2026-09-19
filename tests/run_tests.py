@@ -13,6 +13,20 @@ def run_tests():
         expected_file = test_file.replace(".kol", ".expected")
         print(f"Running {test_file}...", end=" ")
 
+        with open(test_file, "r", encoding="utf-8") as f:
+            first_line = f.readline()
+
+        if first_line.startswith("#!"):
+            res = subprocess.run([sys.executable, test_file], capture_output=True, text=True)
+            if res.returncode == 0:
+                print("PASSED")
+                passed += 1
+            else:
+                print("FAILED (Test Script Failed)")
+                print(res.stdout + res.stderr)
+                failed += 1
+            continue
+
         res = subprocess.run([sys.executable, "kol.py", "run", test_file], capture_output=True, text=True)
         if res.returncode != 0:
             print("FAILED (Compilation/Runtime Error)")
