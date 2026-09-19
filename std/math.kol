@@ -1,3 +1,84 @@
--- std/math.kol
-const PI = 3.141592653589793
-const E  = 2.718281828459045
+const PI  = 3.141592653589793
+const E   = 2.718281828459045
+const TAU = 6.283185307179586
+const INF = 999999999999999.0
+
+fn abs_int(x: int) -> int
+    if x < 0 return x * -1 end
+    return x
+end
+
+fn abs_float(x: float) -> float
+    if x < 0.0 return x * -1.0 end
+    return x
+end
+
+fn min_int(a: int, b: int) -> int
+    if a < b return a end
+    return b
+end
+
+fn max_int(a: int, b: int) -> int
+    if a > b return a end
+    return b
+end
+
+fn clamp(x: int, lo: int, hi: int) -> int
+    if x < lo return lo end
+    if x > hi return hi end
+    return x
+end
+
+fn factorial(n: int) -> int
+    if n <= 1 return 1 end
+    return n * factorial(n - 1)
+end
+
+fn fibonacci(n: int) -> int
+    if n <= 1 return n end
+    return fibonacci(n-1) + fibonacci(n-2)
+end
+
+fn is_even(n: int) -> bool
+    return n mod 2 == 0
+end
+
+fn is_odd(n: int) -> bool
+    return n mod 2 != 0
+end
+
+fn pow_int(base: int, exp: int) -> int
+    if exp == 0 return 1 end
+    mut result = 1
+    mut i = 0
+    while i < exp
+        result = result * base
+        i = i + 1
+    end
+    return result
+end
+
+fn gcd(a: int, b: int) -> int
+    if b == 0 return a end
+    return gcd(b, a mod b)
+end
+
+fn lcm(a: int, b: int) -> int
+    return (a * b) / gcd(a, b)
+end
+
+fn is_prime(n: int) -> bool
+    if n < 2 return false end
+    mut i = 2
+    while i * i <= n
+        if n mod i == 0
+            return false
+        end
+        i = i + 1
+    end
+    return true
+end
+
+fn sum_to(n: int) -> int
+    return n * (n + 1) / 2
+end

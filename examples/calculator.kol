@@ -1,0 +1,15 @@
+fn divide(a: float, b: float) -> float!
+    if b == 0.0
+        fail "division by zero"
+    end
+    return a / b
+end
+fn main()
+    print(10.0 + 5.0)
+    print(10.0 - 5.0)
+    print(10.0 * 5.0)
+    let r = divide(10.0, 5.0) or 0.0
+    print(r)
+    let bad = divide(10.0, 0.0) or -1.0
+    print(bad)
+end

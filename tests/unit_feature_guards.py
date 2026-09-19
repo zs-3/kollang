@@ -1,4 +1,7 @@
 # tests/unit_feature_guards.py
+import sys, os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import unittest
 from compiler.lexer import Lexer
 from compiler.parser import Parser

@@ -15,6 +15,7 @@ class Codegen:
         self.filename = filename
         self.release_mode = release_mode
         self.code: List[str] = []
+        self.global_consts: List[str] = []
         self.type_decls: List[str] = []
         self.proto_decls: List[str] = []
         self.helper_funcs: List[str] = []
@@ -165,6 +166,7 @@ class Codegen:
             self.release_mode = True
         self.is_test_mode = is_test_mode
         self.code = []
+        self.global_consts = []
         self.type_decls = []
         self.proto_decls = []
         self.helper_funcs = []
@@ -175,9 +177,11 @@ class Codegen:
         elif isinstance(node, ScriptProgram):
             all_nodes = node.statements
 
-        # Pre-pass: collect types, enums, functions
+        # Pre-pass: collect consts, types, enums, functions
         for decl in all_nodes:
-            if isinstance(decl, FunctionDecl):
+            if isinstance(decl, VarDecl) and decl.is_const:
+                self._gen_var_decl(decl, global_scope=True)
+            elif isinstance(decl, FunctionDecl):
                 if decl.generic_params:
                     self.generic_func_defs[decl.name] = decl
                 else:
@@ -299,16 +303,18 @@ class Codegen:
                 self._emit("}")
 
         header_inc = '#include "kol_runtime.h"\n\n'
+        const_section = "\n".join(self.global_consts) + "\n\n" if self.global_consts else ""
         type_section = "\n".join(self.type_decls) + "\n\n" if self.type_decls else ""
         proto_section = "\n".join(self.proto_decls) + "\n\n" if self.proto_decls else ""
         helper_section = "\n".join(self.helper_funcs) + "\n\n" if self.helper_funcs else ""
 
-        full_code = header_inc + type_section + proto_section + helper_section + "\n".join(body_code)
+        full_code = header_inc + const_section + type_section + proto_section + helper_section + "\n".join(body_code)
         return full_code
 
     def generate_test_runner(self, program: ASTNode, source: str) -> str:
         """Generate C code that runs test blocks."""
         self.code = []
+        self.global_consts = []
         self.type_decls = []
         self.proto_decls = []
         self.helper_funcs = []
@@ -321,9 +327,11 @@ class Codegen:
         elif isinstance(program, ScriptProgram):
             all_nodes = program.statements
 
-        # Pre-pass: collect types, enums, functions
+        # Pre-pass: collect consts, types, enums, functions
         for decl in all_nodes:
-            if isinstance(decl, FunctionDecl):
+            if isinstance(decl, VarDecl) and decl.is_const:
+                self._gen_var_decl(decl, global_scope=True)
+            elif isinstance(decl, FunctionDecl):
                 if decl.generic_params:
                     self.generic_func_defs[decl.name] = decl
                 else:
@@ -436,11 +444,12 @@ class Codegen:
         self._emit('}')
 
         header_inc = '#include <stdio.h>\n#include <stdbool.h>\n#include "kol_runtime.h"\n\nint _kol_test_failures = 0;\n\n'
+        const_section = "\n".join(self.global_consts) + "\n\n" if self.global_consts else ""
         type_section = "\n".join(self.type_decls) + "\n\n" if self.type_decls else ""
         proto_section = "\n".join(self.proto_decls) + "\n\n" if self.proto_decls else ""
         helper_section = "\n".join(self.helper_funcs) + "\n\n" if self.helper_funcs else ""
 
-        full_code = header_inc + type_section + proto_section + helper_section + "\n".join(body_code)
+        full_code = header_inc + const_section + type_section + proto_section + helper_section + "\n".join(body_code)
         return full_code
 
     def _emit_defers(self):
@@ -723,6 +732,46 @@ class Codegen:
                 self._emit(f"{expr};")
 
     def _gen_var_decl(self, decl: VarDecl, global_scope: bool = False):
+        if decl.is_const:
+            c_type = "int64_t"
+            type_key = "int"
+            if decl.type_annot:
+                tname = decl.type_annot.name
+                type_key = tname
+                if tname == "float": c_type = "double"
+                elif tname == "str": c_type = "KolStr"
+                elif tname == "bool": c_type = "bool"
+                elif tname == "int": c_type = "int64_t"
+                else: c_type = tname
+            elif decl.value:
+                if isinstance(decl.value, FloatLit):
+                    c_type = "double"
+                    type_key = "float"
+                elif isinstance(decl.value, IntLit):
+                    c_type = "int64_t"
+                    type_key = "int"
+                elif isinstance(decl.value, (StrLit, StrInterp)):
+                    c_type = "KolStr"
+                    type_key = "str"
+                elif isinstance(decl.value, BoolLit):
+                    c_type = "bool"
+                    type_key = "bool"
+                else:
+                    t = self._infer_expr_type(decl.value)
+                    type_key = t
+                    if t == "float": c_type = "double"
+                    elif t == "str": c_type = "KolStr"
+                    elif t == "bool": c_type = "bool"
+                    else: c_type = "int64_t"
+
+            self.var_types[decl.name] = type_key
+            safe_name = self._safe_c_name(decl.name)
+            val_c = self._gen_expr(decl.value) if decl.value else "0"
+            const_line = f"static const {c_type} {safe_name} = {val_c};"
+            if const_line not in self.global_consts:
+                self.global_consts.append(const_line)
+            return
+
         if decl.value and isinstance(decl.value, LambdaExpr):
             self.lambda_count += 1
             lam_id = self.lambda_count
@@ -1132,9 +1181,14 @@ class Codegen:
             right = self._gen_expr(expr.right)
             l_type = self._infer_expr_type(expr.left)
             r_type = self._infer_expr_type(expr.right)
+            is_str_cmp = (l_type == "str" or r_type == "str")
             op = expr.op
             if l_type == "str" and r_type == "str" and op == "+":
                 return f"kol_str_concat({left}, {right})"
+            if is_str_cmp and op == "==":
+                return f"kol_str_eq({left}, {right})"
+            if is_str_cmp and op == "!=":
+                return f"kol_str_neq({left}, {right})"
             if op == "and": op = "&&"
             elif op == "or": op = "||"
             elif op == "mod": op = "%"
@@ -1417,6 +1471,21 @@ class Codegen:
             return "bool"
         if isinstance(expr, IntLit):
             return "int"
+        if isinstance(expr, BinOp):
+            if expr.op in ("==", "!=", "<", ">", "<=", ">=", "and", "or"):
+                return "bool"
+            if expr.op in ("+", "-", "*", "/", "mod"):
+                lt = self._infer_expr_type(expr.left)
+                rt = self._infer_expr_type(expr.right)
+                if lt == "str" or rt == "str":
+                    return "str"
+                if lt == "float" or rt == "float":
+                    return "float"
+                return "int"
+        if isinstance(expr, UnaryOp):
+            if expr.op == "not":
+                return "bool"
+            return self._infer_expr_type(expr.operand)
         if isinstance(expr, FieldAccess):
             if isinstance(expr.target, Ident):
                 st_name = expr.target.name
