@@ -1,0 +1,5 @@
+use std.str
+print(is_empty(""))
+print(is_empty("hello"))
+print(to_upper("hello"))
+print(repeat_str("ab", 3))

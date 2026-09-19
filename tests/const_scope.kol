@@ -1,0 +1,8 @@
+use std.math
+
+fn double_pi() -> float
+    return PI * 2.0
+end
+
+print(PI)
+print(double_pi())

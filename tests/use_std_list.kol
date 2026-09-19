@@ -1,0 +1,5 @@
+use std.list
+let nums = [3, 1, 4, 1, 5, 9, 2]
+print(sum_list(nums))
+print(max_in_list(nums))
+print(min_in_list(nums))

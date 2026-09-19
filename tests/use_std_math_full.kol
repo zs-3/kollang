@@ -1,0 +1,8 @@
+use std.math
+print(abs_int(-42))
+print(max_int(3, 7))
+print(min_int(3, 7))
+print(factorial(5))
+print(is_even(4))
+print(is_odd(3))
+print(pow_int(2, 8))
