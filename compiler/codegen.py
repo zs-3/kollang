@@ -141,6 +141,7 @@ class Codegen:
                         elif p.type_annot.name == "float": pt = "double"
                         elif p.type_annot.name == "bool": pt = "bool"
                         elif p.type_annot.name == "int": pt = "int64_t"
+                        elif p.type_annot.name == "list": pt = "kol_array_t"
                         else: pt = p.type_annot.name
                     params_code.append(f"{pt} {p.name}")
                 p_str = ", ".join(params_code)
@@ -246,12 +247,12 @@ class Codegen:
                         elif p.type_annot.name == "float": pt = "double"
                         elif p.type_annot.name == "bool": pt = "bool"
                         elif p.type_annot.name == "int": pt = "int64_t"
+                        elif p.type_annot.name == "list": pt = "kol_array_t"
                         else: pt = p.type_annot.name
                     params_code.append(f"{pt} {p.name}")
                 p_str = ", ".join(params_code) if params_code else "void"
                 prefix = "static inline " if decl.is_pure else ""
                 self.proto_decls.append(f"{prefix}{rt} _kol_fn_{decl.name}({p_str});")
-
                 if decl.is_task:
                     p_task_str = ", ".join(params_code)
                     self.proto_decls.append(f"{rt} _kol_task_{decl.name}({p_task_str});")
@@ -387,6 +388,7 @@ class Codegen:
                         elif p.type_annot.name == "float": pt = "double"
                         elif p.type_annot.name == "bool": pt = "bool"
                         elif p.type_annot.name == "int": pt = "int64_t"
+                        elif p.type_annot.name == "list": pt = "kol_array_t"
                         else: pt = p.type_annot.name
                     params_code.append(f"{pt} {p.name}")
                 p_str = ", ".join(params_code) if params_code else "void"
@@ -782,15 +784,6 @@ class Codegen:
                 if mangled in self.struct_fields:
                     type_key = mangled
                     type_str = mangled
-            elif isinstance(decl.value, AwaitExpr) and isinstance(decl.value.task_expr, CallExpr) and isinstance(decl.value.task_expr.callee, Ident):
-                fn_name = decl.value.task_expr.callee.name
-                if fn_name in self.func_ret_types:
-                    type_key = self.func_ret_types[fn_name]
-                    if type_key == "str": type_str = "KolStr"
-                    elif type_key == "float": type_str = "double"
-                    elif type_key == "bool": type_str = "bool"
-                    elif type_key == "int": type_str = "int64_t"
-                    else: type_str = type_key
             elif isinstance(decl.value, CallExpr) and isinstance(decl.value.callee, Ident):
                 fn_name = decl.value.callee.name
                 if fn_name in self.func_ret_types:
@@ -812,6 +805,15 @@ class Codegen:
                             type_key = e_name
                             type_str = e_name
                             break
+            elif isinstance(decl.value, AwaitExpr) and isinstance(decl.value.task_expr, CallExpr) and isinstance(decl.value.task_expr.callee, Ident):
+                fn_name = decl.value.task_expr.callee.name
+                if fn_name in self.func_ret_types:
+                    type_key = self.func_ret_types[fn_name]
+                    if type_key == "str": type_str = "KolStr"
+                    elif type_key == "float": type_str = "double"
+                    elif type_key == "bool": type_str = "bool"
+                    elif type_key == "int": type_str = "int64_t"
+                    else: type_str = type_key
             elif isinstance(decl.value, ListExpr):
                 type_str = "kol_array_t"
                 if decl.value.elements:
@@ -884,6 +886,13 @@ class Codegen:
                 elif pn == "float": pt = "double"
                 elif pn == "bool": pt = "bool"
                 elif pn == "str": pt = "KolStr"
+                elif pn == "list":
+                    pt = "kol_array_t"
+                    if p.type_annot.generic_args:
+                        elem_t = p.type_annot.generic_args[0].name
+                        pk = f"list_{elem_t}"
+                    else:
+                        pk = "list_int"
                 elif pn in self.struct_fields or pn in self.enum_defs: pt = pn
             self.var_types[p.name] = pk
             p_safe = self._safe_c_name(p.name)
