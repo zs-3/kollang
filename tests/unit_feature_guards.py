@@ -11,14 +11,14 @@ class TestFeatureGuards(unittest.TestCase):
         parser = Parser(tokens, filename)
         return parser.parse()
 
-    def test_task_and_await(self):
+    def test_all_expr(self):
         code = """
 task fn fetch_data() -> int
     return 42
 end
 
 fn main()
-    let res = await fetch_data()
+    let res = all(fetch_data(), fetch_data())
 end
 """
         ast = self._parse(code)
@@ -41,8 +41,13 @@ end
 
     def test_clean_program(self):
         code = """
+task fn worker() -> int
+    return 5
+end
+
 fn main()
-    print("hi")
+    let x = await worker()
+    print(x)
 end
 """
         ast = self._parse(code)
@@ -56,7 +61,7 @@ task fn background_job() -> int
 end
 
 fn main()
-    let val = await background_job()
+    let val = all(background_job())
     system
         print("system operation")
     end

@@ -59,7 +59,7 @@ from compiler.ast_nodes import (
 def check_unimplemented_features(ast: ASTNode) -> List[KolError]:
     """
     Walks the AST recursively and returns a list of KolError objects for
-    unimplemented features (task/await/all, system blocks).
+    unimplemented features (all, system blocks).
     Does NOT raise exceptions.
     """
     errors: List[KolError] = []
@@ -69,7 +69,7 @@ def check_unimplemented_features(ast: ASTNode) -> List[KolError]:
             return
 
         # Check guards on the node itself
-        if isinstance(node, (TaskDecl, AwaitExpr, AllExpr)):
+        if isinstance(node, AllExpr):
             errors.append(
                 KolError(
                     "task/await/all are not yet implemented, tracked for v0.2",

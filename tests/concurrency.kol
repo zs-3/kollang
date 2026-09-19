@@ -1,0 +1,24 @@
+task fn worker() -> int
+    return 5
+end
+
+task fn worker_two() -> int
+    return 10
+end
+
+task fn uppercase(s: str) -> str
+    return s.upper()
+end
+
+fn main()
+    let x = await worker()
+    print(x)
+
+    let a = await worker()
+    let b = await worker_two()
+    print(a)
+    print(b)
+
+    let msg = await uppercase("hello kol")
+    print(msg)
+end
