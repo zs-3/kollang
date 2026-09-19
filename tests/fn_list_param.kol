@@ -1,0 +1,21 @@
+fn total(nums: [int]) -> int
+    mut sum = 0
+    for n in nums
+        sum = sum + n
+    end
+    return sum
+end
+
+fn join_words(words: [str]) -> str
+    mut result = ""
+    for w in words
+        result = result + w
+    end
+    return result
+end
+
+let nums = [10, 20, 30]
+print(total(nums))
+
+let words = ["hello", " ", "world"]
+print(join_words(words))
