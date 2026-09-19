@@ -14,6 +14,11 @@ from compiler.analyser import Analyser
 from compiler.errors import KolError
 from compiler.ast_nodes import ASTNode, Program, ScriptProgram, UseStmt
 
+try:
+    from compiler.feature_guards import check_unimplemented_features
+except ImportError:
+    check_unimplemented_features = None
+
 def get_c_compiler() -> str:
     for cc in ["gcc", "clang", "tcc"]:
         if shutil.which(cc):
@@ -108,6 +113,20 @@ def compile_kol_to_c(kol_filepath: str, release_mode: bool = False) -> str:
         combined_ast = Program(declarations=all_nodes)
     else:
         combined_ast = ScriptProgram(statements=all_nodes)
+
+    if check_unimplemented_features is not None:
+        errors = check_unimplemented_features(combined_ast)
+        if errors:
+            source_code = None
+            if os.path.exists(kol_filepath):
+                try:
+                    with open(kol_filepath, "r", encoding="utf-8") as f:
+                        source_code = f.read()
+                except Exception:
+                    pass
+            for err in errors:
+                print(err.format(source_code=source_code))
+            raise errors[0]
 
     analyser = Analyser(kol_filepath)
     analyser.analyse(combined_ast)

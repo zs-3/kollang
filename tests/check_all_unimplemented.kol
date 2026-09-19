@@ -1,0 +1,43 @@
+#!/usr/bin/env python3
+import sys
+import os
+import subprocess
+
+def test_check_all_unimplemented():
+    tmp_kol = "/tmp/check_all_unimplemented_tmp.kol"
+    with open(tmp_kol, "w") as f:
+        f.write("""task fn a() -> int
+    return 1
+end
+
+task fn b() -> int
+    return 2
+end
+
+fn main()
+    let x = all(a(), b())
+    print(x)
+end
+""")
+
+    cmd = [sys.executable, "kol.py", "check", tmp_kol]
+    res = subprocess.run(cmd, capture_output=True, text=True)
+
+    if os.path.exists(tmp_kol):
+        os.remove(tmp_kol)
+
+    if res.returncode == 0:
+        print("FAIL: Expected 'kol check' on all(...) to fail, but it succeeded!")
+        sys.exit(1)
+
+    output = res.stdout + res.stderr
+    print("Error output from check_all_unimplemented:\n", output)
+
+    if "not yet implemented" not in output:
+        print("FAIL: Output does not mention 'not yet implemented'")
+        sys.exit(1)
+
+    print("PASS: check_all_unimplemented correctly failed with 'not yet implemented'.")
+
+if __name__ == "__main__":
+    test_check_all_unimplemented()
