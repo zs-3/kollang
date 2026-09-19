@@ -1,0 +1,18 @@
+type Outer
+    value: int
+    type Inner
+        label: str
+        fn show() -> str
+            return "Inner: {self.label}"
+        end
+    end
+    fn describe() -> str
+        return "Outer: {self.value}"
+    end
+end
+fn main()
+    let o = Outer(value: 42)
+    let i = Outer.Inner(label: "hello")
+    print(o.describe())
+    print(i.show())
+end

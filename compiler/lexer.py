@@ -56,6 +56,7 @@ class TokenType(Enum):
     AND = auto()
     TEST = auto()
     MOD = auto()
+    ASSERT = auto()
 
     # Literals & Identifiers
     INT_LIT = auto()
@@ -114,6 +115,7 @@ class TokenType(Enum):
     EOF = auto()
 
 KEYWORDS = {
+    "assert": TokenType.ASSERT,
     "let": TokenType.LET,
     "mut": TokenType.MUT,
     "const": TokenType.CONST,

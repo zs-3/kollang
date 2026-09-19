@@ -156,9 +156,49 @@ def cmd_check(args: List[str]):
         print(e.format())
         sys.exit(1)
 
-def cmd_test(args: List[str]):
-    import tests.run_tests as test_runner
-    test_runner.run_tests()
+def cmd_test(args: List[str]) -> None:
+    if not args:
+        print("Usage: kol test <file.kol>")
+        return
+    filepath = args[0]
+    if not os.path.exists(filepath):
+        print(f"File not found: {filepath}")
+        return
+
+    with open(filepath, "r", encoding="utf-8") as f:
+        source = f.read()
+
+    tokens = Lexer(filepath, source).tokenize()
+    ast = Parser(tokens, filepath).parse()
+    gen = Codegen(filepath)
+
+    c_code = gen.generate_test_runner(ast, source)
+
+    c_file = filepath.replace(".kol", "_test.c")
+    bin_file = filepath.replace(".kol", "_test")
+
+    with open(c_file, "w", encoding="utf-8") as f:
+        f.write(c_code)
+
+    cc = get_c_compiler()
+    runtime_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "runtime"))
+    result = subprocess.run(
+        [cc, "-O0", "-o", bin_file, c_file, "-I", runtime_dir, "-lm"],
+        capture_output=True, text=True)
+
+    if result.returncode != 0:
+        print("Compilation error:")
+        print(result.stderr)
+        if os.path.exists(c_file):
+            os.remove(c_file)
+        return
+
+    run = subprocess.run([bin_file], capture_output=True, text=True)
+    print(run.stdout)
+    if os.path.exists(c_file):
+        os.remove(c_file)
+    if os.path.exists(bin_file):
+        os.remove(bin_file)
 
 def cmd_fmt(args: List[str]):
     if not args:

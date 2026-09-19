@@ -61,6 +61,7 @@ class StructField(ASTNode):
 @dataclass
 class TypeDecl(ASTNode):
     name: str = ""
+    c_name: str = ""
     fields: List[StructField] = field(default_factory=list)
     methods: List[FunctionDecl] = field(default_factory=list)
     impls: List['ImplBlock'] = field(default_factory=list)

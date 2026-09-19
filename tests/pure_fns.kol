@@ -1,0 +1,8 @@
+pure fn square(x: int) -> int
+    return x * x
+end
+pure fn add(a: int, b: int) -> int
+    return a + b
+end
+print(square(5))
+print(add(3, 4))

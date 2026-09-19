@@ -1,0 +1,25 @@
+type Student
+    name:  str
+    score: int
+    fn grade() -> str
+        if self.score >= 90
+            return "A"
+        elif self.score >= 80
+            return "B"
+        elif self.score >= 70
+            return "C"
+        else
+            return "F"
+        end
+    end
+end
+fn main()
+    let s1 = Student(name: "Alice", score: 95)
+    let s2 = Student(name: "Bob", score: 82)
+    let s3 = Student(name: "Charlie", score: 71)
+    let s4 = Student(name: "Diana", score: 55)
+    print("{s1.name}: {s1.grade()}")
+    print("{s2.name}: {s2.grade()}")
+    print("{s3.name}: {s3.grade()}")
+    print("{s4.name}: {s4.grade()}")
+end
