@@ -3,9 +3,9 @@ All times in seconds. Lower is better.
 
 | Benchmark | Kol | Python | C | Kol/C ratio |
 |---|---|---|---|---|
-| fibonacci_30 | 0.0052s | 0.2214s | 0.0053s | 0.98x |
-| loop_10million | 0.0022s | 1.7044s | 0.0021s | 1.09x |
-| string_build | 0.0030s | 0.0220s | 0.0023s | 1.33x |
-| method_dispatch | 0.0023s | 0.1966s | 0.0024s | 0.96x |
+| fibonacci_30 | 0.0049s | 0.2174s | 0.0055s | 0.90x |
+| loop_10million | 0.0020s | 1.7442s | 0.0019s | 1.04x |
+| string_build | 0.0019s | 0.0193s | 0.0019s | 1.00x |
+| method_dispatch | 0.0021s | 0.1967s | 0.0019s | 1.11x |
 
-Compile time (fibonacci.kol): 285ms
+Compile time (fibonacci.kol): 264ms

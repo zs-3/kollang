@@ -56,6 +56,7 @@ class TokenType(Enum):
     AND = auto()
     TEST = auto()
     MOD = auto()
+    PERCENT = auto()
     ASSERT = auto()
 
     # Literals & Identifiers
@@ -357,6 +358,7 @@ class Lexer:
 
             op_map = {
                 '+': TokenType.PLUS, '-': TokenType.MINUS, '*': TokenType.STAR, '/': TokenType.SLASH,
+                '%': TokenType.PERCENT,
                 '<': TokenType.LT, '>': TokenType.GT, '=': TokenType.ASSIGN, '!': TokenType.BANG,
                 '&': TokenType.AMP, '|': TokenType.PIPE, '^': TokenType.CARET, '~': TokenType.TILDE,
                 '?': TokenType.QUESTION, ':': TokenType.COLON, ',': TokenType.COMMA, '.': TokenType.DOT,

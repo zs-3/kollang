@@ -28,7 +28,8 @@ static inline void kol_panic(const char* file, int line, const char* message) {
 typedef struct {
     uint32_t ref_count;
     size_t len;
-    char data[];
+    size_t capacity;
+    char* data;
 } KolStrHeap;
 
 typedef struct {
@@ -55,15 +56,19 @@ static inline KolStr kol_str_create(const char* cstr) {
         s.sso.data[len] = '\0';
     } else {
         s.is_heap = true;
-        KolStrHeap* h = (KolStrHeap*)malloc(sizeof(KolStrHeap) + len + 1);
-        if (!h) {
+        size_t cap = len * 2 + 16;
+        KolStrHeap* h = (KolStrHeap*)malloc(sizeof(KolStrHeap));
+        char* buf = (char*)malloc(cap + 1);
+        if (!h || !buf) {
             fprintf(stderr, "Out of memory in kol_str_create\n");
             exit(1);
         }
         h->ref_count = 1;
         h->len = len;
-        memcpy(h->data, cstr, len);
-        h->data[len] = '\0';
+        h->capacity = cap;
+        memcpy(buf, cstr, len);
+        buf[len] = '\0';
+        h->data = buf;
         s.heap.ptr = h;
     }
     return s;
@@ -187,6 +192,7 @@ static inline void kol_arc_release_str(KolStr s) {
     if (s.is_heap && s.heap.ptr) {
         s.heap.ptr->ref_count--;
         if (s.heap.ptr->ref_count == 0) {
+            if (s.heap.ptr->data) free(s.heap.ptr->data);
             free(s.heap.ptr);
         }
     }
@@ -200,18 +206,67 @@ static inline bool kol_str_eq(KolStr a, KolStr b) {
 }
 
 static inline KolStr kol_str_concat(KolStr a, KolStr b) {
-    const char* ca = kol_str_cstr(&a);
-    const char* cb = kol_str_cstr(&b);
     size_t la = kol_str_len(a);
     size_t lb = kol_str_len(b);
     size_t total = la + lb;
-    char* buf = (char*)malloc(total + 1);
-    memcpy(buf, ca, la);
-    memcpy(buf + la, cb, lb);
+
+    if (a.is_heap && a.heap.ptr && a.heap.ptr->ref_count == 1 && total <= a.heap.ptr->capacity) {
+        memcpy(a.heap.ptr->data + la, kol_str_cstr(&b), lb);
+        a.heap.ptr->data[total] = '\0';
+        a.heap.ptr->len = total;
+        return a;
+    }
+
+    size_t new_cap = total * 2 + 16;
+    char* buf = (char*)malloc(new_cap + 1);
+    memcpy(buf, kol_str_cstr(&a), la);
+    memcpy(buf + la, kol_str_cstr(&b), lb);
     buf[total] = '\0';
-    KolStr res = kol_str_create(buf);
-    free(buf);
-    return res;
+
+    KolStr result;
+    result.is_heap = true;
+    result.heap.ptr = (KolStrHeap*)malloc(sizeof(KolStrHeap));
+    result.heap.ptr->data = buf;
+    result.heap.ptr->len = total;
+    result.heap.ptr->capacity = new_cap;
+    result.heap.ptr->ref_count = 1;
+    return result;
+}
+
+static inline void kol_str_append(KolStr* s, KolStr other) {
+    size_t la = kol_str_len(*s);
+    size_t lb = kol_str_len(other);
+    size_t total = la + lb;
+
+    if (!s->is_heap) {
+        if (total <= KOL_SSO_MAX) {
+            memcpy(s->sso.data + la, kol_str_cstr(&other), lb);
+            s->sso.data[total] = '\0';
+            s->sso.len = (uint8_t)total;
+            return;
+        }
+        size_t cap = total * 2 + 16;
+        char* buf = (char*)malloc(cap + 1);
+        memcpy(buf, s->sso.data, la);
+        memcpy(buf + la, kol_str_cstr(&other), lb);
+        buf[total] = '\0';
+        s->is_heap = true;
+        s->heap.ptr = (KolStrHeap*)malloc(sizeof(KolStrHeap));
+        s->heap.ptr->data = buf;
+        s->heap.ptr->len = total;
+        s->heap.ptr->capacity = cap;
+        s->heap.ptr->ref_count = 1;
+        return;
+    }
+
+    if (total > s->heap.ptr->capacity) {
+        size_t new_cap = total * 2 + 16;
+        s->heap.ptr->data = (char*)realloc(s->heap.ptr->data, new_cap + 1);
+        s->heap.ptr->capacity = new_cap;
+    }
+    memcpy(s->heap.ptr->data + la, kol_str_cstr(&other), lb);
+    s->heap.ptr->data[total] = '\0';
+    s->heap.ptr->len = total;
 }
 
 static inline KolStr kol_str_upper(KolStr s) {

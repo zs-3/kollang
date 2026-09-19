@@ -671,8 +671,9 @@ class Parser:
 
     def _parse_multiplication(self) -> ASTNode:
         expr = self._parse_unary()
-        while self._check(TokenType.STAR, TokenType.SLASH, TokenType.MOD, TokenType.POWER):
-            op = self._advance().value
+        while self._check(TokenType.STAR, TokenType.SLASH, TokenType.MOD, TokenType.PERCENT, TokenType.POWER):
+            op_tok = self._advance()
+            op = "%" if op_tok.type in (TokenType.MOD, TokenType.PERCENT) else op_tok.value
             right = self._parse_unary()
             expr = BinOp(left=expr, op=op, right=right, location=expr.location)
         return expr

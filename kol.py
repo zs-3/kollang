@@ -61,7 +61,7 @@ def resolve_imports_and_parse(filepath: str, visited: set) -> List[ASTNode]:
 
     return nodes
 
-def compile_kol_to_c(kol_filepath: str) -> str:
+def compile_kol_to_c(kol_filepath: str, release_mode: bool = False) -> str:
     visited = set()
     all_nodes = resolve_imports_and_parse(kol_filepath, visited)
 
@@ -79,8 +79,8 @@ def compile_kol_to_c(kol_filepath: str) -> str:
     analyser = Analyser(kol_filepath)
     analyser.analyse(combined_ast)
 
-    codegen = Codegen(kol_filepath)
-    c_code = codegen.generate(combined_ast)
+    codegen = Codegen(kol_filepath, release_mode=release_mode)
+    c_code = codegen.generate(combined_ast, release_mode=release_mode)
     return c_code
 
 def cmd_run(args: List[str]):
@@ -122,7 +122,7 @@ def cmd_build(args: List[str]):
         else:
             file_path = a
 
-    c_code = compile_kol_to_c(file_path)
+    c_code = compile_kol_to_c(file_path, release_mode=release)
     base_name = os.path.splitext(os.path.basename(file_path))[0]
     c_file = f"{base_name}.c"
     out_bin = f"./{base_name}"

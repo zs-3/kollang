@@ -11,8 +11,9 @@ C_KEYWORDS = {
 }
 
 class Codegen:
-    def __init__(self, filename: str):
+    def __init__(self, filename: str, release_mode: bool = False):
         self.filename = filename
+        self.release_mode = release_mode
         self.code: List[str] = []
         self.type_decls: List[str] = []
         self.proto_decls: List[str] = []
@@ -158,7 +159,9 @@ class Codegen:
                 self._gen_method_decl(effective_name, m, impl_interface=impl_b.interface_name)
         self.current_type_name = None
 
-    def generate(self, node: ASTNode, is_test_mode: bool = False) -> str:
+    def generate(self, node: ASTNode, is_test_mode: bool = False, release_mode: bool = False) -> str:
+        if release_mode:
+            self.release_mode = True
         self.is_test_mode = is_test_mode
         self.code = []
         self.type_decls = []
@@ -447,6 +450,12 @@ class Codegen:
         elif isinstance(stmt, UseStmt):
             pass
         elif isinstance(stmt, Assignment):
+            if isinstance(stmt.target, Ident) and stmt.op == "=" and isinstance(stmt.value, BinOp) and stmt.value.op == "+":
+                if isinstance(stmt.value.left, Ident) and stmt.value.left.name == stmt.target.name and self.var_types.get(stmt.target.name) == "str":
+                    right_val = self._gen_expr(stmt.value.right)
+                    target_safe = self._safe_c_name(stmt.target.name)
+                    self._emit(f"kol_str_append(&{target_safe}, {right_val});")
+                    return
             target = self._gen_expr(stmt.target)
             val = self._gen_expr(stmt.value)
             self._emit(f"{target} {stmt.op} {val};")
@@ -626,8 +635,11 @@ class Codegen:
                     idx_safe = self._safe_c_name(stmt.index_var)
                     self._emit(f"int64_t {idx_safe} = (int64_t){idx_c};")
 
-                line_num = stmt.location.line if stmt.location else 0
-                self._emit(f"{elem_c_type} {elem_safe} = *(({elem_c_type}*)kol_array_get(&{arr_c}, {idx_c}, \"{self.filename}\", {line_num}));")
+                if self.release_mode:
+                    self._emit(f"{elem_c_type} {elem_safe} = (({elem_c_type}* restrict){arr_c}.data)[{idx_c}];")
+                else:
+                    line_num = stmt.location.line if stmt.location else 0
+                    self._emit(f"{elem_c_type} {elem_safe} = *(({elem_c_type}*)kol_array_get(&{arr_c}, {idx_c}, \"{self.filename}\", {line_num}));")
                 for s in stmt.body:
                     self._gen_statement(s, current_fn_fallible, current_fn_optional, opt_ret_kind)
                 self.indent_level -= 1
@@ -1106,6 +1118,8 @@ class Codegen:
             target_t = self._infer_expr_type(expr.target)
             if target_t == "KolMap_si":
                 return f"kol_map_si_get(&{target}, {idx})"
+            if self.release_mode:
+                return f"(((int64_t* restrict){target}.data)[{idx}])"
             return f"(*((int64_t*)kol_array_get(&{target}, {idx}, \"{self.filename}\", {expr.location.line if expr.location else 0})))"
 
         if isinstance(expr, ListExpr):
