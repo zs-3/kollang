@@ -133,7 +133,7 @@ def cmd_run(args: List[str]):
     cc = get_c_compiler()
     runtime_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "runtime"))
 
-    comp_cmd = [cc, "-I", runtime_dir, c_file, "-o", bin_file, "-lm"]
+    comp_cmd = [cc, "-I", runtime_dir, c_file, "-o", bin_file, "-lm", "-lpthread"]
     res = subprocess.run(comp_cmd, capture_output=True, text=True)
     if res.returncode != 0:
         print("C Compilation Error:")
@@ -166,9 +166,9 @@ def cmd_build(args: List[str]):
     cc = get_c_compiler()
     runtime_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "runtime"))
     if release:
-        comp_cmd = [cc, "-O3", "-march=native", "-I", runtime_dir, "-o", out_bin, c_file, "-lm"]
+        comp_cmd = [cc, "-O3", "-march=native", "-I", runtime_dir, "-o", out_bin, c_file, "-lm", "-lpthread"]
     else:
-        comp_cmd = [cc, "-O2", "-I", runtime_dir, "-o", out_bin, c_file, "-lm"]
+        comp_cmd = [cc, "-O2", "-I", runtime_dir, "-o", out_bin, c_file, "-lm", "-lpthread"]
 
     res = subprocess.run(comp_cmd, capture_output=True, text=True)
     if res.returncode != 0:
@@ -216,7 +216,7 @@ def cmd_test(args: List[str]) -> None:
     cc = get_c_compiler()
     runtime_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "runtime"))
     result = subprocess.run(
-        [cc, "-O0", "-o", bin_file, c_file, "-I", runtime_dir, "-lm"],
+        [cc, "-O0", "-o", bin_file, c_file, "-I", runtime_dir, "-lm", "-lpthread"],
         capture_output=True, text=True)
 
     if result.returncode != 0:

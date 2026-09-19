@@ -253,6 +253,9 @@ class Codegen:
                 p_str = ", ".join(params_code) if params_code else "void"
                 prefix = "static inline " if decl.is_pure else ""
                 self.proto_decls.append(f"{prefix}{rt} _kol_fn_{decl.name}({p_str});")
+                if decl.is_task:
+                    p_task_str = ", ".join(params_code)
+                    self.proto_decls.append(f"{rt} _kol_task_{decl.name}({p_task_str});")
 
             elif isinstance(decl, TypeDecl):
                 self._gen_proto_decls_for_type(decl)
@@ -802,6 +805,15 @@ class Codegen:
                             type_key = e_name
                             type_str = e_name
                             break
+            elif isinstance(decl.value, AwaitExpr) and isinstance(decl.value.task_expr, CallExpr) and isinstance(decl.value.task_expr.callee, Ident):
+                fn_name = decl.value.task_expr.callee.name
+                if fn_name in self.func_ret_types:
+                    type_key = self.func_ret_types[fn_name]
+                    if type_key == "str": type_str = "KolStr"
+                    elif type_key == "float": type_str = "double"
+                    elif type_key == "bool": type_str = "bool"
+                    elif type_key == "int": type_str = "int64_t"
+                    else: type_str = type_key
             elif isinstance(decl.value, ListExpr):
                 type_str = "kol_array_t"
                 if decl.value.elements:
@@ -926,6 +938,56 @@ class Codegen:
         self.indent_level -= 1
         self._emit("}")
         self._emit("")
+
+        if decl.is_task and not is_main:
+            struct_name = f"_KolTaskArgs_{decl.name}"
+            field_decls = []
+            param_names = []
+            param_types = []
+            for p in decl.params:
+                pt = "int64_t"
+                if p.type_annot:
+                    pn = p.type_annot.name
+                    if pn == "int": pt = "int64_t"
+                    elif pn == "float": pt = "double"
+                    elif pn == "bool": pt = "bool"
+                    elif pn == "str": pt = "KolStr"
+                    elif pn in self.struct_fields or pn in self.enum_defs: pt = pn
+                field_decls.append(f"    {pt} {p.name};")
+                param_names.append(p.name)
+                param_types.append(pt)
+            field_decls.append(f"    {ret_type} _result;")
+            args_struct_def = f"typedef struct {{\n" + "\n".join(field_decls) + f"\n}} {struct_name};"
+            self.type_decls.append(args_struct_def)
+
+            trampoline_name = f"_kol_trampoline_{decl.name}"
+            call_args_str = ", ".join([f"args->{pn}" for pn in param_names])
+            trampoline_code = (
+                f"static void* {trampoline_name}(void* raw_args) {{\n"
+                f"    {struct_name}* args = ({struct_name}*)raw_args;\n"
+                f"    args->_result = _kol_fn_{decl.name}({call_args_str});\n"
+                f"    return NULL;\n"
+                f"}}"
+            )
+            self.helper_funcs.append(trampoline_code)
+
+            task_fn_name = f"_kol_task_{decl.name}"
+            params_with_types = [f"{pt} {pn}" for pt, pn in zip(param_types, param_names)]
+            task_param_str = ", ".join(params_with_types)
+            self._emit(f"{ret_type} {task_fn_name}({task_param_str}) {{")
+            self.indent_level += 1
+            self._emit(f"{struct_name}* args = ({struct_name}*)malloc(sizeof({struct_name}));")
+            for pn in param_names:
+                self._emit(f"args->{pn} = {pn};")
+            self._emit("pthread_t t;")
+            self._emit(f"pthread_create(&t, NULL, {trampoline_name}, args);")
+            self._emit("pthread_join(t, NULL);")
+            self._emit(f"{ret_type} result = args->_result;")
+            self._emit("free(args);")
+            self._emit("return result;")
+            self.indent_level -= 1
+            self._emit("}")
+            self._emit("")
 
     def _gen_method_decl(self, type_name: str, decl: FunctionDecl, impl_interface: Optional[str] = None):
         ret_type = "void"
@@ -1077,6 +1139,14 @@ class Codegen:
             elif op == "or": op = "||"
             elif op == "mod": op = "%"
             return f"({left} {op} {right})"
+
+        if isinstance(expr, AwaitExpr):
+            if isinstance(expr.task_expr, CallExpr):
+                if isinstance(expr.task_expr.callee, Ident):
+                    task_name = expr.task_expr.callee.name
+                    arg_strs = [self._gen_expr(a) for a in expr.task_expr.args]
+                    return f"_kol_task_{task_name}({', '.join(arg_strs)})"
+            return self._gen_expr(expr.task_expr)
 
         if isinstance(expr, UnaryOp):
             operand = self._gen_expr(expr.operand)

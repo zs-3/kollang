@@ -9,6 +9,7 @@
 #include <stdarg.h>
 #include <ctype.h>
 #include <math.h>
+#include <pthread.h>
 
 /* ============================================================================
  * PANIC AND ERRORS
