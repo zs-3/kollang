@@ -124,7 +124,7 @@ class Codegen:
                     elif p.type_annot.name == "bool": pt = "bool"
                     elif p.type_annot.name == "int": pt = "int64_t"
                     else: pt = p.type_annot.name
-                params_code.append(f"{pt} {p.name}")
+                params_code.append(f"{pt} _kol_{p.name}")
             p_str = ", ".join(params_code)
             self.proto_decls.append(f"{rt} _kol_method_{effective_name}_{m.name}({p_str});")
 
@@ -148,7 +148,7 @@ class Codegen:
                         elif p.type_annot.name == "int": pt = "int64_t"
                         elif p.type_annot.name == "list": pt = "kol_array_t"
                         else: pt = p.type_annot.name
-                    params_code.append(f"{pt} {p.name}")
+                    params_code.append(f"{pt} _kol_{p.name}")
                 p_str = ", ".join(params_code)
                 self.proto_decls.append(f"{rt} _kol_impl_{impl_b.interface_name}_{effective_name}_{m.name}({p_str});")
                 self.proto_decls.append(f"{rt} _kol_method_{effective_name}_{m.name}({p_str});")
@@ -1230,7 +1230,8 @@ class Codegen:
                 elif pn == "bool": pt = "bool"
                 elif pn == "str": pt = "KolStr"
             self.var_types[p.name] = pk
-            params_code.append(f"{pt} {p.name}")
+            self.var_types[f"_kol_{p.name}"] = pk
+            params_code.append(f"{pt} _kol_{p.name}")
 
         param_str = ", ".join(params_code)
 
