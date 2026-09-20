@@ -291,8 +291,37 @@ def cmd_test(args: List[str]) -> None:
         os.remove(bin_file)
 
 def cmd_fmt(args: List[str]):
-    print("kol fmt is not yet implemented")
-    sys.exit(1)
+    if not args:
+        print("Usage: kol fmt <file.kol>")
+        return
+    filepath = args[0]
+    if not os.path.exists(filepath):
+        print(f"File not found: {filepath}")
+        return
+    with open(filepath, encoding="utf-8") as f:
+        source = f.read()
+    lines = source.split("\n")
+    output = []
+    indent = 0
+    INDENT_OPEN = {"fn","if","elif","else","for","while",
+                   "loop","match","type","enum","interface",
+                   "task","test","arena","system","when"}
+    INDENT_CLOSE = {"end","elif","else"}
+    for line in lines:
+        s = line.strip()
+        if not s:
+            output.append("")
+            continue
+        first = s.split()[0] if s.split() else ""
+        if first in INDENT_CLOSE:
+            indent = max(0, indent - 1)
+        output.append("    " * indent + s)
+        if first in INDENT_OPEN and not s.endswith("end"):
+            indent += 1
+    result = "\n".join(output)
+    with open(filepath, "w", encoding="utf-8") as f:
+        f.write(result)
+    print(f"Formatted {filepath}")
 
 def cmd_version():
     print("Kol Programming Language v0.1.0-alpha")
