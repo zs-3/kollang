@@ -1,0 +1,22 @@
+task fn double(n: int) -> int
+    return n * 2
+end
+
+task fn triple(n: int) -> int
+    return n * 3
+end
+
+task fn add_ten(n: int) -> int
+    return n + 10
+end
+
+fn main()
+    let a, b = await all(double(5), triple(5))
+    print(a)
+    print(b)
+
+    let x, y, z = await all(double(10), triple(10), add_ten(10))
+    print(x)
+    print(y)
+    print(z)
+end

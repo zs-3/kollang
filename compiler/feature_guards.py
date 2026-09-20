@@ -50,6 +50,7 @@ from compiler.ast_nodes import (
     RangeExpr,
     AwaitExpr,
     AllExpr,
+    MultiAssignStmt,
 )
 
 # raw blocks already fail at the lexer (raw C syntax like ';' is not a valid Kol token) and don't need a guard here.
@@ -72,14 +73,7 @@ def check_unimplemented_features(ast: ASTNode) -> List[KolError]:
         if isinstance(node, AllExpr):
             errors.append(
                 KolError(
-                    "task/await/all are not yet implemented, tracked for v0.2",
-                    node.location,
-                )
-            )
-        elif isinstance(node, SystemBlock):
-            errors.append(
-                KolError(
-                    "system blocks are not yet implemented, tracked for v0.2",
+                    "bare 'all(...)' is not yet implemented; use multi-variable let, e.g. 'let a, b = await all(...)'",
                     node.location,
                 )
             )
@@ -289,6 +283,14 @@ def check_unimplemented_features(ast: ASTNode) -> List[KolError]:
         elif isinstance(node, AllExpr):
             for t in node.tasks:
                 _walk(t)
+
+        elif isinstance(node, MultiAssignStmt):
+            if isinstance(node.value, AwaitExpr) and isinstance(node.value.task_expr, AllExpr):
+                pass
+            elif isinstance(node.value, AllExpr):
+                pass
+            else:
+                _walk(node.value)
 
     _walk(ast)
     return errors

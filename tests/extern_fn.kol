@@ -1,0 +1,6 @@
+extern fn sqrt(x: float) -> float from "math"
+extern fn fabs(x: float) -> float from "math"
+
+print(sqrt(16.0))
+print(sqrt(2.0))
+print(fabs(-3.14))

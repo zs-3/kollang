@@ -19,6 +19,13 @@ try:
 except ImportError:
     check_unimplemented_features = None
 
+TARGET_COMPILERS = {
+    "linux-x86_64": ("gcc", []),
+    "linux-arm64": ("aarch64-linux-gnu-gcc", []),
+    "macos-x86_64": ("clang", ["-arch", "x86_64"]),
+    "macos-arm64": ("clang", ["-arch", "arm64"]),
+}
+
 def get_c_compiler() -> str:
     for cc in ["gcc", "clang", "tcc"]:
         if shutil.which(cc):
@@ -124,8 +131,6 @@ def compile_kol_to_c(kol_filepath: str, release_mode: bool = False) -> str:
                         source_code = f.read()
                 except Exception:
                     pass
-            for err in errors:
-                print(err.format(source_code=source_code))
             raise errors[0]
 
     analyser = Analyser(kol_filepath)
@@ -167,27 +172,60 @@ def cmd_build(args: List[str]):
         print("Error: expected file argument for 'kol build'")
         sys.exit(1)
     release = False
+    target = None
     file_path = ""
-    for a in args:
+
+    i = 0
+    while i < len(args):
+        a = args[i]
         if a == "--release":
             release = True
+        elif a == "--target":
+            if i + 1 < len(args):
+                target = args[i + 1]
+                i += 1
+            else:
+                print("Error: --target requires a target name")
+                sys.exit(1)
+        elif a.startswith("--target="):
+            target = a.split("=", 1)[1]
         else:
             file_path = a
+        i += 1
+
+    extra_flags = []
+    cc = get_c_compiler()
+
+    base_name = os.path.splitext(os.path.basename(file_path))[0]
+    out_bin = f"./{base_name}"
+
+    if target:
+        if target not in TARGET_COMPILERS:
+            print(f"Unknown target: {target}")
+            print("Valid targets are:", ", ".join(sorted(TARGET_COMPILERS.keys())))
+            sys.exit(1)
+
+        target_cc, target_flags = TARGET_COMPILERS[target]
+        if not shutil.which(target_cc):
+            print(f"Cross compiler not found: {target_cc}")
+            print(f"Please install {target_cc} to build for target {target}.")
+            sys.exit(1)
+
+        cc = target_cc
+        extra_flags = target_flags
+        out_bin = f"./{base_name}-{target}"
 
     c_code = compile_kol_to_c(file_path, release_mode=release)
-    base_name = os.path.splitext(os.path.basename(file_path))[0]
     c_file = f"{base_name}.c"
-    out_bin = f"./{base_name}"
 
     with open(c_file, "w", encoding="utf-8") as f:
         f.write(c_code)
 
-    cc = get_c_compiler()
     runtime_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "runtime"))
     if release:
-        comp_cmd = [cc, "-O3", "-march=native", "-I", runtime_dir, "-o", out_bin, c_file, "-lm", "-lpthread"]
+        comp_cmd = [cc] + extra_flags + ["-O3", "-march=native", "-I", runtime_dir, "-o", out_bin, c_file, "-lm", "-lpthread"]
     else:
-        comp_cmd = [cc, "-O2", "-I", runtime_dir, "-o", out_bin, c_file, "-lm", "-lpthread"]
+        comp_cmd = [cc] + extra_flags + ["-O2", "-I", runtime_dir, "-o", out_bin, c_file, "-lm", "-lpthread"]
 
     res = subprocess.run(comp_cmd, capture_output=True, text=True)
     if res.returncode != 0:
@@ -254,10 +292,36 @@ def cmd_test(args: List[str]) -> None:
 
 def cmd_fmt(args: List[str]):
     if not args:
-        print("Error: expected file argument for 'kol fmt'")
-        sys.exit(1)
-    file_path = args[0]
-    print(f"Formatted {file_path}")
+        print("Usage: kol fmt <file.kol>")
+        return
+    filepath = args[0]
+    if not os.path.exists(filepath):
+        print(f"File not found: {filepath}")
+        return
+    with open(filepath, encoding="utf-8") as f:
+        source = f.read()
+    lines = source.split("\n")
+    output = []
+    indent = 0
+    INDENT_OPEN = {"fn","if","elif","else","for","while",
+                   "loop","match","type","enum","interface",
+                   "task","test","arena","system","when"}
+    INDENT_CLOSE = {"end","elif","else"}
+    for line in lines:
+        s = line.strip()
+        if not s:
+            output.append("")
+            continue
+        first = s.split()[0] if s.split() else ""
+        if first in INDENT_CLOSE:
+            indent = max(0, indent - 1)
+        output.append("    " * indent + s)
+        if first in INDENT_OPEN and not s.endswith("end"):
+            indent += 1
+    result = "\n".join(output)
+    with open(filepath, "w", encoding="utf-8") as f:
+        f.write(result)
+    print(f"Formatted {filepath}")
 
 def cmd_version():
     print("Kol Programming Language v0.1.0-alpha")

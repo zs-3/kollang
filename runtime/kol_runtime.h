@@ -536,6 +536,36 @@ static inline bool kol_array_contains_int(kol_array_t* a, int64_t val) {
     return false;
 }
 
+static inline kol_array_t kol_str_split(KolStr s, KolStr sep) {
+    kol_array_t arr = kol_array_create(sizeof(KolStr), 4);
+    const char* cs = kol_str_cstr(&s);
+    const char* csep = kol_str_cstr(&sep);
+    size_t sep_len = kol_str_len(sep);
+
+    if (sep_len == 0) {
+        KolStr item = kol_str_create(cs);
+        kol_array_push(&arr, &item);
+        return arr;
+    }
+
+    const char* cur = cs;
+    const char* next;
+    while ((next = strstr(cur, csep)) != NULL) {
+        size_t part_len = next - cur;
+        char* buf = (char*)malloc(part_len + 1);
+        memcpy(buf, cur, part_len);
+        buf[part_len] = '\0';
+        KolStr part = kol_str_create(buf);
+        free(buf);
+        kol_array_push(&arr, &part);
+        cur = next + sep_len;
+    }
+
+    KolStr rest = kol_str_create(cur);
+    kol_array_push(&arr, &rest);
+    return arr;
+}
+
 static inline bool kol_array_contains_str(kol_array_t* a, KolStr val) {
     for (size_t i = 0; i < a->len; i++) {
         KolStr v = *((KolStr*)((char*)a->data + (i * a->elem_size)));
@@ -608,6 +638,74 @@ static inline int64_t kol_map_si_get(KolMap_si* m, KolStr key) {
     }
     return 0;
 }
+
+/* ============================================================================
+ * CHANNELS
+ * ============================================================================ */
+
+typedef struct {
+    void* data;
+    size_t elem_size;
+    int has_value;
+    pthread_mutex_t mutex;
+    pthread_cond_t  can_send;
+    pthread_cond_t  can_recv;
+    int closed;
+} KolChannel;
+
+static inline KolChannel* kol_channel_create(size_t elem_size) {
+    KolChannel* ch = (KolChannel*)malloc(sizeof(KolChannel));
+    ch->data = malloc(elem_size);
+    ch->elem_size = elem_size;
+    ch->has_value = 0;
+    ch->closed = 0;
+    pthread_mutex_init(&ch->mutex, NULL);
+    pthread_cond_init(&ch->can_send, NULL);
+    pthread_cond_init(&ch->can_recv, NULL);
+    return ch;
+}
+
+static inline void kol_channel_send(KolChannel* ch, void* value) {
+    pthread_mutex_lock(&ch->mutex);
+    while (ch->has_value && !ch->closed)
+        pthread_cond_wait(&ch->can_send, &ch->mutex);
+    if (!ch->closed) {
+        memcpy(ch->data, value, ch->elem_size);
+        ch->has_value = 1;
+        pthread_cond_signal(&ch->can_recv);
+    }
+    pthread_mutex_unlock(&ch->mutex);
+}
+
+static inline void kol_channel_recv(KolChannel* ch, void* out) {
+    pthread_mutex_lock(&ch->mutex);
+    while (!ch->has_value && !ch->closed)
+        pthread_cond_wait(&ch->can_recv, &ch->mutex);
+    if (ch->has_value) {
+        memcpy(out, ch->data, ch->elem_size);
+        ch->has_value = 0;
+        pthread_cond_signal(&ch->can_send);
+    }
+    pthread_mutex_unlock(&ch->mutex);
+}
+
+static inline void kol_channel_close(KolChannel* ch) {
+    pthread_mutex_lock(&ch->mutex);
+    ch->closed = 1;
+    pthread_cond_broadcast(&ch->can_recv);
+    pthread_cond_broadcast(&ch->can_send);
+    pthread_mutex_unlock(&ch->mutex);
+}
+
+/* ============================================================================
+ * SYSTEM MEMORY HELPERS
+ * ============================================================================ */
+
+static inline void* kol_mem_alloc(size_t n) { return malloc(n); }
+static inline void kol_mem_free(void* p) { free(p); }
+static inline void* kol_mem_realloc(void* p, size_t n) { return realloc(p, n); }
+static inline void kol_mem_set(void* p, int v, size_t n) { memset(p, v, n); }
+static inline void kol_mem_copy(void* d, const void* s, size_t n) { memcpy(d, s, n); }
 
 /* ============================================================================
  * PRINT HELPERS

@@ -1,0 +1,8 @@
+fn main()
+    system
+        let buf = mem.alloc(64)
+        mem.set(buf, 0, 64)
+        mem.free(buf)
+    end
+    print("system block ok")
+end

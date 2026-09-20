@@ -1,0 +1,6 @@
+when PLATFORM == "linux"
+    extern fn getpid() -> int from "unistd"
+    print(getpid())
+else
+    print(0)
+end

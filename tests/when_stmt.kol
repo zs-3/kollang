@@ -1,0 +1,14 @@
+when PLATFORM == "linux"
+    const PLATFORM_NAME = "Linux"
+else
+    const PLATFORM_NAME = "Other"
+end
+
+when RELEASE
+    const BUILD_TYPE = "release"
+else
+    const BUILD_TYPE = "debug"
+end
+
+print(PLATFORM_NAME)
+print(BUILD_TYPE)
