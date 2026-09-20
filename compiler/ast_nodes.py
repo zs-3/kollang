@@ -191,6 +191,19 @@ class UseStmt(ASTNode):
 @dataclass
 class ExternDecl(ASTNode):
     fn_decl: FunctionDecl = field(default_factory=FunctionDecl)
+    header: str = ""
+
+    @property
+    def name(self) -> str:
+        return self.fn_decl.name
+
+    @property
+    def params(self) -> List[Param]:
+        return self.fn_decl.params
+
+    @property
+    def return_type(self) -> Optional[TypeAnnotation]:
+        return self.fn_decl.return_type
 
 @dataclass
 class BinOp(ASTNode):
@@ -308,3 +321,13 @@ class AwaitExpr(ASTNode):
 @dataclass
 class AllExpr(ASTNode):
     tasks: List[ASTNode] = field(default_factory=list)
+
+@dataclass
+class ChannelExpr(ASTNode):
+    elem_type: Optional[TypeAnnotation] = None
+
+@dataclass
+class MultiAssignStmt(ASTNode):
+    names: List[str] = field(default_factory=list)
+    value: ASTNode = field(default_factory=ASTNode)
+    is_mut: bool = False

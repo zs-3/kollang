@@ -14,7 +14,21 @@ class TestFeatureGuards(unittest.TestCase):
         parser = Parser(tokens, filename)
         return parser.parse()
 
-    def test_all_expr(self):
+    def test_all_expr_valid(self):
+        code = """
+task fn fetch_data() -> int
+    return 42
+end
+
+fn main()
+    let a, b = await all(fetch_data(), fetch_data())
+end
+"""
+        ast = self._parse(code)
+        errors = check_unimplemented_features(ast)
+        self.assertEqual(len(errors), 0)
+
+    def test_all_expr_invalid_bare(self):
         code = """
 task fn fetch_data() -> int
     return 42
@@ -27,20 +41,20 @@ end
         ast = self._parse(code)
         errors = check_unimplemented_features(ast)
         self.assertGreater(len(errors), 0)
-        self.assertTrue(any("not yet implemented" in err.message for err in errors))
+        self.assertTrue(any("bare 'all(...)'" in err.message for err in errors))
 
     def test_system_block(self):
         code = """
 fn main()
     system
-        print("sys")
+        let buf = mem.alloc(64)
+        mem.free(buf)
     end
 end
 """
         ast = self._parse(code)
         errors = check_unimplemented_features(ast)
-        self.assertGreater(len(errors), 0)
-        self.assertTrue(any("system blocks are not yet implemented" in err.message for err in errors))
+        self.assertEqual(len(errors), 0)
 
     def test_clean_program(self):
         code = """
@@ -65,14 +79,11 @@ end
 
 fn main()
     let val = all(background_job())
-    system
-        print("system operation")
-    end
 end
 """
         ast = self._parse(code)
         errors = check_unimplemented_features(ast)
-        self.assertGreaterEqual(len(errors), 2)
+        self.assertGreaterEqual(len(errors), 1)
 
 if __name__ == "__main__":
     unittest.main()

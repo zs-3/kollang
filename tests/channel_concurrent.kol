@@ -1,0 +1,10 @@
+task fn producer(ch: channel(int)) -> int
+    ch.send(42)
+    return 0
+end
+fn main()
+    let ch = channel(int)
+    let ignored = await producer(ch)
+    let received = ch.receive()
+    print(received)
+end

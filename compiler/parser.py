@@ -86,6 +86,12 @@ class Parser:
         if self._check(TokenType.ENUM):
             return self._parse_enum_decl()
 
+        if self._check(TokenType.EXTERN):
+            return self._parse_extern_decl()
+
+        if self._check(TokenType.WHEN):
+            return self._parse_when_stmt()
+
         if self._check(TokenType.INTERFACE):
             return self._parse_interface_decl()
 
@@ -225,6 +231,12 @@ class Parser:
             if self._match(TokenType.ARROW):
                 ret_t = self._parse_type_annotation()
             t = TypeAnnotation(name="fn", generic_args=param_types, location=loc)
+        elif self._check(TokenType.CHANNEL):
+            self._advance()
+            self._expect(TokenType.LPAREN, "(")
+            elem_t = self._parse_type_annotation()
+            self._expect(TokenType.RPAREN, ")")
+            t = TypeAnnotation(name="channel", generic_args=[elem_t], location=loc)
         else:
             tok = self._expect(TokenType.IDENT, "type name")
             t = TypeAnnotation(name=tok.value, location=loc)
@@ -258,6 +270,15 @@ class Parser:
 
         tok = self._expect(TokenType.IDENT, "variable name")
         name = tok.value
+
+        if self._check(TokenType.COMMA):
+            names = [name]
+            while self._match(TokenType.COMMA):
+                next_tok = self._expect(TokenType.IDENT, "variable name after comma")
+                names.append(next_tok.value)
+            self._expect(TokenType.ASSIGN, "=")
+            val = self._parse_expr()
+            return MultiAssignStmt(names=names, value=val, is_mut=is_mut, location=loc)
 
         type_annot = None
         if self._match(TokenType.COLON):
@@ -393,6 +414,69 @@ class Parser:
 
         self._expect(TokenType.END, "end for enum declaration")
         return EnumDecl(name=name, variants=variants, location=loc)
+
+    def _parse_extern_decl(self) -> ExternDecl:
+        loc = self._curr().location
+        self._expect(TokenType.EXTERN, "extern")
+        self._expect(TokenType.FN, "fn")
+
+        tok = self._expect(TokenType.IDENT, "function name")
+        name = tok.value
+
+        self._expect(TokenType.LPAREN, "(")
+        params = []
+        while not self._check(TokenType.RPAREN, TokenType.EOF):
+            p_loc = self._curr().location
+            p_name = self._expect(TokenType.IDENT, "parameter name").value
+            p_type = None
+            if self._match(TokenType.COLON):
+                p_type = self._parse_type_annotation()
+            default_val = None
+            if self._match(TokenType.ASSIGN):
+                default_val = self._parse_expr()
+            params.append(Param(name=p_name, type_annot=p_type, default_val=default_val, location=p_loc))
+            if not self._check(TokenType.RPAREN):
+                self._expect(TokenType.COMMA, ",")
+        self._expect(TokenType.RPAREN, ")")
+
+        ret_type = None
+        if self._match(TokenType.ARROW):
+            ret_type = self._parse_type_annotation()
+
+        self._expect(TokenType.FROM, "from")
+        header_tok = self._expect(TokenType.STR_LIT, "header string")
+        header = header_tok.value
+
+        fn_decl = FunctionDecl(
+            name=name, params=params, return_type=ret_type, body=[], location=loc
+        )
+        return ExternDecl(fn_decl=fn_decl, header=header, location=loc)
+
+    def _parse_when_stmt(self) -> WhenStmt:
+        loc = self._curr().location
+        self._expect(TokenType.WHEN, "when")
+        cond = self._parse_expr()
+        self._skip_newlines()
+
+        then_branch = []
+        while not self._check(TokenType.ELSE, TokenType.END, TokenType.EOF):
+            stmt = self._parse_statement_or_decl()
+            if stmt:
+                then_branch.append(stmt)
+            self._skip_newlines()
+
+        else_branch = None
+        if self._match(TokenType.ELSE):
+            self._skip_newlines()
+            else_branch = []
+            while not self._check(TokenType.END, TokenType.EOF):
+                stmt = self._parse_statement_or_decl()
+                if stmt:
+                    else_branch.append(stmt)
+                self._skip_newlines()
+
+        self._expect(TokenType.END, "closing 'end' for when block")
+        return WhenStmt(condition=cond, then_branch=then_branch, else_branch=else_branch, location=loc)
 
     def _parse_interface_decl(self) -> InterfaceDecl:
         loc = self._curr().location
@@ -805,6 +889,13 @@ class Parser:
         if self._check(TokenType.SELF):
             self._advance()
             return Ident(name="self", location=loc)
+
+        if self._check(TokenType.CHANNEL):
+            self._advance()
+            self._expect(TokenType.LPAREN, "(")
+            elem_t = self._parse_type_annotation()
+            self._expect(TokenType.RPAREN, ")")
+            return ChannelExpr(elem_type=elem_t, location=loc)
 
         if self._check(TokenType.IDENT):
             name = self._advance().value

@@ -4,11 +4,12 @@ import os
 import subprocess
 
 def test_check_system_unimplemented():
-    tmp_kol = "/tmp/check_system_unimplemented_tmp.kol"
+    tmp_kol = "/tmp/check_system_tmp.kol"
     with open(tmp_kol, "w") as f:
         f.write("""fn main()
     system
-        print(1)
+        let buf = mem.alloc(64)
+        mem.free(buf)
     end
 end
 """)
@@ -19,18 +20,11 @@ end
     if os.path.exists(tmp_kol):
         os.remove(tmp_kol)
 
-    if res.returncode == 0:
-        print("FAIL: Expected 'kol check' on system block to fail, but it succeeded!")
+    if res.returncode != 0:
+        print(f"FAIL: Expected 'kol check' on system block to succeed, but failed with:\n{res.stderr}")
         sys.exit(1)
 
-    output = res.stdout + res.stderr
-    print("Error output from check_system_unimplemented:\n", output)
-
-    if "not yet implemented" not in output:
-        print("FAIL: Output does not mention 'not yet implemented'")
-        sys.exit(1)
-
-    print("PASS: check_system_unimplemented correctly failed with 'not yet implemented'.")
+    print("PASS: check_system on system block succeeded.")
 
 if __name__ == "__main__":
     test_check_system_unimplemented()
