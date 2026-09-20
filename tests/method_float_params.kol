@@ -1,0 +1,24 @@
+type Calc
+    base: float
+    fn multiply(factor: float) -> float
+        return self.base * factor
+    end
+    fn add(amount: float) -> float
+        return self.base + amount
+    end
+    fn power(exp: int) -> int
+        mut result = 1
+        mut i = 0
+        while i < exp
+            result = result * 2
+            i = i + 1
+        end
+        return result
+    end
+end
+fn main()
+    let c = Calc(base: 3.0)
+    print(c.multiply(4.0))
+    print(c.add(2.5))
+    print(c.power(3))
+end
