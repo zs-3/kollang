@@ -1231,6 +1231,7 @@ class Codegen:
                 elif pn == "float": pt = "double"
                 elif pn == "bool": pt = "bool"
                 elif pn == "str": pt = "KolStr"
+                else: pt = pn    
             self.var_types[p.name] = pk
             self.var_types[f"_kol_{p.name}"] = pk
             params_code.append(f"{pt} _kol_{p.name}")
