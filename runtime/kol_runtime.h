@@ -505,6 +505,19 @@ static inline void kol_array_free(kol_array_t* arr) {
     arr->capacity = 0;
 }
 
+static inline void kol_array_free_strs(kol_array_t* arr) {
+    if (arr->data) {
+        KolStr* strs = (KolStr*)arr->data;
+        for (size_t i = 0; i < arr->len; i++) {
+            kol_arc_release_str(strs[i]);
+        }
+        free(arr->data);
+        arr->data = NULL;
+    }
+    arr->len = 0;
+    arr->capacity = 0;
+}
+
 static inline void kol_array_pop(kol_array_t* a) {
     if (a->len > 0) {
         a->len--;
