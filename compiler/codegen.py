@@ -37,6 +37,46 @@ class Codegen:
         self.in_system_block: bool = False
         self.current_type_name: Optional[str] = None
         self.defer_stack: List[List[ASTNode]] = []
+        self.scope_stack: List[List[Tuple[str, str]]] = [[]]
+
+    def _push_scope(self):
+        self.scope_stack.append([])
+
+    def _pop_and_emit_cleanup(self, skip_var: Optional[str] = None):
+        if not self.scope_stack:
+            return
+        scope_vars = self.scope_stack.pop()
+        for var_name, type_key in reversed(scope_vars):
+            if skip_var and var_name == skip_var:
+                continue
+            safe_name = self._safe_c_name(var_name)
+            if type_key == "str":
+                self._emit(f"kol_arc_release_str({safe_name});")
+            elif type_key == "list_str":
+                self._emit(f"kol_array_free_strs(&{safe_name});")
+            elif type_key.startswith("list") or type_key == "kol_array_t":
+                self._emit(f"kol_array_free(&{safe_name});")
+            elif type_key in self.struct_fields:
+                str_fields = [f_name for f_name, f_type in self.struct_fields[type_key] if f_type == "KolStr"]
+                for sf in str_fields:
+                    self._emit(f"kol_arc_release_str({safe_name}.{sf});")
+
+    def _emit_all_active_scope_cleanups(self, skip_var: Optional[str] = None):
+        for scope_vars in reversed(self.scope_stack):
+            for var_name, type_key in reversed(scope_vars):
+                if skip_var and var_name == skip_var:
+                    continue
+                safe_name = self._safe_c_name(var_name)
+                if type_key == "str":
+                    self._emit(f"kol_arc_release_str({safe_name});")
+                elif type_key == "list_str":
+                    self._emit(f"kol_array_free_strs(&{safe_name});")
+                elif type_key.startswith("list") or type_key == "kol_array_t":
+                    self._emit(f"kol_array_free(&{safe_name});")
+                elif type_key in self.struct_fields:
+                    str_fields = [f_name for f_name, f_type in self.struct_fields[type_key] if f_type == "KolStr"]
+                    for sf in str_fields:
+                        self._emit(f"kol_arc_release_str({safe_name}.{sf});")
 
     def _emit(self, line: str):
         indent = "    " * self.indent_level
@@ -537,9 +577,14 @@ class Codegen:
                     return
             target = self._gen_expr(stmt.target)
             val = self._gen_expr(stmt.value)
-            self._emit(f"{target} {stmt.op} {val};")
             if isinstance(stmt.target, Ident) and self.var_types.get(stmt.target.name) == "str":
-                self._emit(f"kol_arc_retain_str({target});")
+                target_safe = self._safe_c_name(stmt.target.name)
+                self._emit(f"kol_arc_release_str({target_safe});")
+                self._emit(f"{target} {stmt.op} {val};")
+                if isinstance(stmt.value, Ident):
+                    self._emit(f"kol_arc_retain_str({target});")
+            else:
+                self._emit(f"{target} {stmt.op} {val};")
         elif isinstance(stmt, DeferStmt):
             if self.defer_stack:
                 self.defer_stack[-1].append(stmt)
@@ -554,23 +599,29 @@ class Codegen:
             cond = self._gen_expr(stmt.condition)
             self._emit(f"if ({cond}) {{")
             self.indent_level += 1
+            self._push_scope()
             for s in stmt.then_branch:
                 self._gen_statement(s, current_fn_fallible, current_fn_optional, opt_ret_kind)
+            self._pop_and_emit_cleanup()
             self.indent_level -= 1
 
             for elif_cond, elif_body in stmt.elif_branches:
                 e_cond = self._gen_expr(elif_cond)
                 self._emit(f"}} else if ({e_cond}) {{")
                 self.indent_level += 1
+                self._push_scope()
                 for s in elif_body:
                     self._gen_statement(s, current_fn_fallible, current_fn_optional, opt_ret_kind)
+                self._pop_and_emit_cleanup()
                 self.indent_level -= 1
 
             if stmt.else_branch is not None:
                 self._emit("} else {")
                 self.indent_level += 1
+                self._push_scope()
                 for s in stmt.else_branch:
                     self._gen_statement(s, current_fn_fallible, current_fn_optional, opt_ret_kind)
+                self._pop_and_emit_cleanup()
                 self.indent_level -= 1
 
             self._emit("}")
@@ -671,8 +722,10 @@ class Codegen:
                 v_safe = self._safe_c_name(v)
                 self._emit(f"for (int64_t {v_safe} = {start}; {v_safe} {op} {end}; {v_safe} += {step}) {{")
                 self.indent_level += 1
+                self._push_scope()
                 for s in stmt.body:
                     self._gen_statement(s, current_fn_fallible, current_fn_optional, opt_ret_kind)
+                self._pop_and_emit_cleanup()
                 self.indent_level -= 1
                 self._emit("}")
             else:
@@ -709,6 +762,7 @@ class Codegen:
 
                 self._emit(f"for (size_t {idx_c} = 0; {idx_c} < {arr_c}.len; {idx_c}++) {{")
                 self.indent_level += 1
+                self._push_scope()
                 if stmt.index_var:
                     self.var_types[stmt.index_var] = "int"
                     idx_safe = self._safe_c_name(stmt.index_var)
@@ -721,6 +775,7 @@ class Codegen:
                     self._emit(f"{elem_c_type} {elem_safe} = *(({elem_c_type}*)kol_array_get(&{arr_c}, {idx_c}, \"{self.filename}\", {line_num}));")
                 for s in stmt.body:
                     self._gen_statement(s, current_fn_fallible, current_fn_optional, opt_ret_kind)
+                self._pop_and_emit_cleanup()
                 self.indent_level -= 1
                 self._emit("}")
 
@@ -728,16 +783,20 @@ class Codegen:
             cond = self._gen_expr(stmt.condition)
             self._emit(f"while ({cond}) {{")
             self.indent_level += 1
+            self._push_scope()
             for s in stmt.body:
                 self._gen_statement(s, current_fn_fallible)
+            self._pop_and_emit_cleanup()
             self.indent_level -= 1
             self._emit("}")
 
         elif isinstance(stmt, LoopStmt):
             self._emit("while (1) {")
             self.indent_level += 1
+            self._push_scope()
             for s in stmt.body:
                 self._gen_statement(s, current_fn_fallible)
+            self._pop_and_emit_cleanup()
             self.indent_level -= 1
             self._emit("}")
 
@@ -745,20 +804,30 @@ class Codegen:
             self._emit_defers()
             if stmt.value:
                 val = self._gen_expr(stmt.value)
+                ret_type_c = "int64_t"
+                t_inf = self._infer_expr_type(stmt.value)
+                if t_inf == "str": ret_type_c = "KolStr"
+                elif t_inf == "float": ret_type_c = "double"
+                elif t_inf == "bool": ret_type_c = "bool"
+
+                ret_var = stmt.value.name if isinstance(stmt.value, Ident) else None
+                self._emit(f"{ret_type_c} _kol_ret_val = {val};")
+                self._emit_all_active_scope_cleanups(skip_var=ret_var)
                 if current_fn_fallible:
-                    self._emit(f"return kol_result_ok_int({val});")
+                    self._emit("return kol_result_ok_int(_kol_ret_val);")
                 elif current_fn_optional:
                     if isinstance(stmt.value, NoneLit):
                         if opt_ret_kind == "str": self._emit("return kol_opt_str_none();")
                         elif opt_ret_kind == "float": self._emit("return kol_opt_float_none();")
                         else: self._emit("return kol_opt_int_none();")
                     else:
-                        if opt_ret_kind == "str": self._emit(f"return kol_opt_str_some({val});")
-                        elif opt_ret_kind == "float": self._emit(f"return kol_opt_float_some({val});")
-                        else: self._emit(f"return kol_opt_int_some({val});")
+                        if opt_ret_kind == "str": self._emit("return kol_opt_str_some(_kol_ret_val);")
+                        elif opt_ret_kind == "float": self._emit("return kol_opt_float_some(_kol_ret_val);")
+                        else: self._emit("return kol_opt_int_some(_kol_ret_val);")
                 else:
-                    self._emit(f"return {val};")
+                    self._emit("return _kol_ret_val;")
             else:
+                self._emit_all_active_scope_cleanups()
                 if current_fn_optional:
                     if opt_ret_kind == "str": self._emit("return kol_opt_str_none();")
                     elif opt_ret_kind == "float": self._emit("return kol_opt_float_none();")
@@ -1035,6 +1104,8 @@ class Codegen:
                     type_key = "list_int"
 
         self.var_types[decl.name] = type_key
+        if self.scope_stack and not global_scope:
+            self.scope_stack[-1].append((decl.name, type_key))
         safe_decl_name = self._safe_c_name(decl.name)
 
         if decl.value:
@@ -1116,6 +1187,7 @@ class Codegen:
         self._emit(f"{inline_prefix}{ret_type} {c_fn_name}({param_str}) {{")
         self.indent_level += 1
         self.defer_stack.append([])
+        self._push_scope()
 
         body = decl.body
         for idx, stmt in enumerate(body):
@@ -1143,6 +1215,7 @@ class Codegen:
             self._gen_statement(stmt, current_fn_fallible=is_fallible, current_fn_optional=is_optional, opt_ret_kind=opt_ret_kind)
 
         self._emit_defers()
+        self._pop_and_emit_cleanup()
         if is_main:
             self._emit("return 0;")
         self.defer_stack.pop()
@@ -1241,6 +1314,7 @@ class Codegen:
         self._emit(f"{ret_type} {c_fn_name}({param_str}) {{")
         self.indent_level += 1
         self.defer_stack.append([])
+        self._push_scope()
 
         body = decl.body
         for idx, stmt in enumerate(body):
@@ -1253,6 +1327,7 @@ class Codegen:
             self._gen_statement(stmt)
 
         self._emit_defers()
+        self._pop_and_emit_cleanup()
         self.defer_stack.pop()
 
         self.indent_level -= 1
@@ -1350,7 +1425,19 @@ class Codegen:
             is_str_cmp = (l_type == "str" or r_type == "str")
             op = expr.op
             if l_type == "str" and r_type == "str" and op == "+":
-                return f"kol_str_concat({left}, {right})"
+                tmp_l = self._temp_var("str_l")
+                tmp_r = self._temp_var("str_r")
+                res_v = self._temp_var("str_res")
+                self._emit(f"KolStr {tmp_l} = {left};")
+                if isinstance(expr.left, Ident):
+                    self._emit(f"kol_arc_retain_str({tmp_l});")
+                self._emit(f"KolStr {tmp_r} = {right};")
+                if isinstance(expr.right, Ident):
+                    self._emit(f"kol_arc_retain_str({tmp_r});")
+                self._emit(f"KolStr {res_v} = kol_str_concat({tmp_l}, {tmp_r});")
+                self._emit(f"kol_arc_release_str({tmp_l});")
+                self._emit(f"kol_arc_release_str({tmp_r});")
+                return res_v
             if is_str_cmp and op == "==":
                 return f"kol_str_eq({left}, {right})"
             if is_str_cmp and op == "!=":
@@ -1772,7 +1859,7 @@ class Codegen:
                     "upper": "str", "lower": "str", "trim": "str",
                     "len": "int", "contains": "bool",
                     "starts_with": "bool", "ends_with": "bool",
-                    "replace": "str", "repeat": "str", "split": "list_str",
+                    "replace": "str", "repeat": "str", "slice": "str", "split": "list_str",
                 }
                 if expr.method_name in str_method_types:
                     return str_method_types[expr.method_name]
