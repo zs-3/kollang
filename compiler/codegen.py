@@ -955,6 +955,8 @@ class Codegen:
                 type_str = "void*"
             elif t_inf.startswith("channel"):
                 type_str = "KolChannel*"
+            elif t_inf not in ("int", "void") and t_inf in self.struct_fields:
+                type_str = t_inf          # ← ADD THIS LINE    
 
             if isinstance(decl.value, StrLit) or isinstance(decl.value, StrInterp):
                 type_key = "str"
