@@ -1,0 +1,19 @@
+use std.core
+
+assert_true(is_even(4), "4 is even")
+assert_true(not is_even(3), "3 is not even")
+assert_true(is_odd(3), "3 is odd")
+assert_true(not is_odd(4), "4 is not odd")
+
+assert_true(abs_int(-10) == 10, "abs_int(-10) == 10")
+assert_true(abs_int(10) == 10, "abs_int(10) == 10")
+assert_true(abs_float(-3.14) == 3.14, "abs_float(-3.14) == 3.14")
+
+assert_true(min_int(5, 10) == 5, "min_int(5, 10) == 5")
+assert_true(max_int(5, 10) == 10, "max_int(5, 10) == 10")
+
+assert_true(clamp_int(15, 0, 10) == 10, "clamp high")
+assert_true(clamp_int(-5, 0, 10) == 0, "clamp low")
+assert_true(clamp_int(5, 0, 10) == 5, "clamp in range")
+
+print("CORE TESTS PASSED")

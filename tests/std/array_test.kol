@@ -1,0 +1,27 @@
+use std.core
+use std.array
+
+mut arr = [5, 2, 8, 1, 9]
+
+assert_true(array_len(arr) == 5, "array_len")
+assert_true(not is_empty_array(arr), "is_empty_array")
+
+assert_true(sum_array(arr) == 25, "sum_array")
+assert_true(product_array([2, 3, 4]) == 24, "product_array")
+
+let mx = max_array(arr) or -1
+assert_true(mx == 9, "max_array")
+
+let mn = min_array(arr) or -1
+assert_true(mn == 1, "min_array")
+
+assert_true(array_contains(arr, 8), "array_contains true")
+assert_true(not array_contains(arr, 99), "array_contains false")
+
+assert_true(array_index_of(arr, 8) == 2, "array_index_of")
+assert_true(array_index_of(arr, 99) == -1, "array_index_of missing")
+
+let sorted: [int] = sort_int_array(arr)
+assert_true(sorted[0] == 1 and sorted[1] == 2 and sorted[2] == 5 and sorted[3] == 8 and sorted[4] == 9, "sort_int_array")
+
+print("ARRAY TESTS PASSED")

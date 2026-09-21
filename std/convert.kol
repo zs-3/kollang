@@ -1,3 +1,5 @@
+-- std/convert.kol
+
 fn int_to_str(n: int) -> str
     return "{n}"
 end
@@ -9,4 +11,108 @@ end
 fn bool_to_str(b: bool) -> str
     if b return "true" end
     return "false"
+end
+
+fn char_to_str(c: str) -> str
+    return c
+end
+
+fn str_to_int(s: str) -> int!
+    let len = s.len()
+    if len == 0
+        fail "empty string"
+    end
+    mut neg = false
+    mut start = 0
+    let c: str = s.slice(0, 1)
+    if c == "-"
+        neg = true
+        start = 1
+    elif c == "+"
+        start = 1
+    end
+    if start >= len
+        fail "no digits"
+    end
+    mut val = 0
+    mut i = start
+    while i < len
+        let ch: str = s.slice(i, i + 1)
+        if ch == "0" val = val * 10 + 0
+        elif ch == "1" val = val * 10 + 1
+        elif ch == "2" val = val * 10 + 2
+        elif ch == "3" val = val * 10 + 3
+        elif ch == "4" val = val * 10 + 4
+        elif ch == "5" val = val * 10 + 5
+        elif ch == "6" val = val * 10 + 6
+        elif ch == "7" val = val * 10 + 7
+        elif ch == "8" val = val * 10 + 8
+        elif ch == "9" val = val * 10 + 9
+        else fail "invalid digit" end
+        i = i + 1
+    end
+    if neg return val * -1 end
+    return val
+end
+
+fn str_to_float(s: str) -> float!
+    let len = s.len()
+    if len == 0
+        fail "empty string"
+    end
+    mut neg = false
+    mut start = 0
+    let c: str = s.slice(0, 1)
+    if c == "-"
+        neg = true
+        start = 1
+    elif c == "+"
+        start = 1
+    end
+    if start >= len
+        fail "no digits"
+    end
+    mut val = 0.0
+    mut decimal_places = -1
+    mut i = start
+    while i < len
+        let ch: str = s.slice(i, i + 1)
+        if ch == "."
+            if decimal_places >= 0 fail "multiple decimal points" end
+            decimal_places = 0
+        else
+            mut is_d = false
+            mut d = 0.0
+            if ch == "0" is_d = true d = 0.0 end
+            if ch == "1" is_d = true d = 1.0 end
+            if ch == "2" is_d = true d = 2.0 end
+            if ch == "3" is_d = true d = 3.0 end
+            if ch == "4" is_d = true d = 4.0 end
+            if ch == "5" is_d = true d = 5.0 end
+            if ch == "6" is_d = true d = 6.0 end
+            if ch == "7" is_d = true d = 7.0 end
+            if ch == "8" is_d = true d = 8.0 end
+            if ch == "9" is_d = true d = 9.0 end
+
+            if not is_d
+                fail "invalid digit"
+            end
+
+            if decimal_places < 0
+                val = val * 10.0 + d
+            else
+                decimal_places = decimal_places + 1
+                mut divisor = 1.0
+                mut k = 0
+                while k < decimal_places
+                    divisor = divisor * 10.0
+                    k = k + 1
+                end
+                val = val + d / divisor
+            end
+        end
+        i = i + 1
+    end
+    if neg return val * -1.0 end
+    return val
 end

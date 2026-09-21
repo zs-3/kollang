@@ -1,0 +1,28 @@
+use std.core
+use std.convert
+
+assert_true(int_to_str(42) == "42", "int_to_str")
+assert_true(float_to_str(3.14) == "3.14", "float_to_str")
+assert_true(bool_to_str(true) == "true", "bool_to_str true")
+assert_true(bool_to_str(false) == "false", "bool_to_str false")
+assert_true(char_to_str("a") == "a", "char_to_str")
+
+let n1 = str_to_int("12345") or -1
+assert_true(n1 == 12345, "str_to_int pos")
+
+let n2 = str_to_int("-99") or 0
+assert_true(n2 == -99, "str_to_int neg")
+
+let n3 = str_to_int("invalid") or -999
+assert_true(n3 == -999, "str_to_int invalid")
+
+let f1 = str_to_float("3.14159") or 0.0
+assert_true(f1 > 3.14 and f1 < 3.15, "str_to_float pos")
+
+let f2 = str_to_float("-12.5") or 0.0
+assert_true(f2 < -12.4 and f2 > -12.6, "str_to_float neg")
+
+let f3 = str_to_float("invalid") or -1.0
+assert_true(f3 == -1.0, "str_to_float invalid")
+
+print("CONVERT TESTS PASSED")

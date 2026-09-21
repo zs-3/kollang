@@ -1,39 +1,33 @@
+-- std/list.kol
+
+use std.array
+
 fn sum_list(nums: [int]) -> int
-    mut total = 0
-    for n in nums
-        total = total + n
-    end
-    return total
+    return sum_array(nums)
 end
 
 fn product_list(nums: [int]) -> int
-    mut result = 1
-    for n in nums
-        result = result * n
-    end
-    return result
+    return product_array(nums)
 end
 
 fn max_in_list(nums: [int]) -> int
-    mut best = nums[0]
-    for n in nums
-        if n > best
-            best = n
-        end
-    end
-    return best
+    let mx = max_array(nums) or 0
+    return mx
 end
 
 fn min_in_list(nums: [int]) -> int
-    mut best = nums[0]
-    for n in nums
-        if n < best
-            best = n
-        end
-    end
-    return best
+    let mn = min_array(nums) or 0
+    return mn
 end
 
 fn list_contains_int(lst: [int], val: int) -> bool
-    return lst.contains(val)
+    return array_contains(lst, val)
+end
+
+fn list_index_of(lst: [int], val: int) -> int
+    return array_index_of(lst, val)
+end
+
+fn sort_list_int(lst: [int]) -> [int]
+    return sort_int_array(lst)
 end
