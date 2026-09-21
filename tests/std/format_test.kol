@@ -1,0 +1,12 @@
+use std.core
+use std.format
+
+assert_true(format_int(123) == "123", "format_int")
+assert_true(format_float(3.14) == "3.14", "format_float")
+assert_true(format_bool(true) == "true", "format_bool")
+
+assert_true(pad_left("42", 5, "0") == "00042", "pad_left")
+assert_true(pad_right("hi", 5, "!") == "hi!!!", "pad_right")
+assert_true(pad_left("longstring", 5, " ") == "longstring", "pad_left noop")
+
+print("FORMAT TESTS PASSED")

@@ -1,0 +1,23 @@
+use std.core
+use std.list
+
+mut lst = [10, 20, 30]
+
+assert_true(sum_list(lst) == 60, "sum_list")
+assert_true(product_list(lst) == 6000, "product_list")
+
+let mx = max_in_list(lst)
+assert_true(mx == 30, "max_in_list")
+
+let mn = min_in_list(lst)
+assert_true(mn == 10, "min_in_list")
+
+assert_true(list_contains_int(lst, 20), "list_contains_int true")
+assert_true(not list_contains_int(lst, 99), "list_contains_int false")
+
+assert_true(list_index_of(lst, 20) == 1, "list_index_of")
+
+let sorted: [int] = sort_list_int([3, 1, 2])
+assert_true(sorted[0] == 1 and sorted[1] == 2 and sorted[2] == 3, "sort_list_int")
+
+print("LIST TESTS PASSED")

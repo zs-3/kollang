@@ -1,0 +1,32 @@
+-- std/format.kol
+
+use std.convert
+use std.str
+
+fn format_int(n: int) -> str
+    return int_to_str(n)
+end
+
+fn format_float(f: float) -> str
+    return float_to_str(f)
+end
+
+fn format_bool(b: bool) -> str
+    return bool_to_str(b)
+end
+
+fn pad_left(s: str, total_len: int, pad_char: str) -> str
+    let current_len = s.len()
+    if current_len >= total_len return s end
+    let needed = total_len - current_len
+    let padding = repeat_str(pad_char, needed)
+    return padding + s
+end
+
+fn pad_right(s: str, total_len: int, pad_char: str) -> str
+    let current_len = s.len()
+    if current_len >= total_len return s end
+    let needed = total_len - current_len
+    let padding = repeat_str(pad_char, needed)
+    return s + padding
+end

@@ -1,0 +1,35 @@
+use std.core
+use std.str
+
+assert_true(is_empty(""), "empty str")
+assert_true(not is_empty("hello"), "non empty str")
+assert_true(str_len("kol") == 3, "str len")
+
+assert_true(starts_with("hello world", "hello"), "starts_with true")
+assert_true(not starts_with("hello world", "world"), "starts_with false")
+
+assert_true(ends_with("hello world", "world"), "ends_with true")
+assert_true(not ends_with("hello world", "hello"), "ends_with false")
+
+assert_true(str_contains("hello world", "lo wo"), "contains true")
+
+assert_true(index_of("hello world", "world") == 6, "index_of world")
+assert_true(index_of("hello world", "missing") == -1, "index_of missing")
+
+assert_true(last_index_of("banana", "a") == 5, "last_index_of a")
+assert_true(last_index_of("banana", "ba") == 0, "last_index_of ba")
+
+assert_true(slice("hello world", 0, 5) == "hello", "slice hello")
+
+assert_true(to_upper("hello") == "HELLO", "to_upper")
+assert_true(to_lower("WORLD") == "world", "to_lower")
+
+assert_true(trim_str("  hello  ") == "hello", "trim")
+assert_true(trim_start("  hello  ") == "hello  ", "trim_start")
+assert_true(trim_end("  hello  ") == "  hello", "trim_end")
+
+assert_true(replace("foo bar foo", "foo", "baz") == "baz bar baz", "replace")
+assert_true(repeat_str("abc", 3) == "abcabcabc", "repeat")
+assert_true(reverse_str("hello") == "olleh", "reverse")
+
+print("STR TESTS PASSED")

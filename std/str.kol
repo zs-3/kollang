@@ -1,15 +1,19 @@
+-- std/str.kol
+
 fn is_empty(s: str) -> bool
     return s.len() == 0
 end
 
+fn str_len(s: str) -> int
+    return s.len()
+end
+
 fn repeat_str(s: str, n: int) -> str
-    mut result = ""
-    mut i = 0
-    while i < n
-        result = result + s
-        i = i + 1
-    end
-    return result
+    return s.repeat(n)
+end
+
+fn str_split(s: str, sep: str) -> [str]
+    return s.split(sep)
 end
 
 fn str_join(sep: str, parts: [str]) -> str
@@ -37,10 +41,6 @@ fn trim_str(s: str) -> str
     return s.trim()
 end
 
-fn str_len(s: str) -> int
-    return s.len()
-end
-
 fn str_contains(s: str, sub: str) -> bool
     return s.contains(sub)
 end
@@ -51,4 +51,97 @@ end
 
 fn ends_with(s: str, suffix: str) -> bool
     return s.ends_with(suffix)
+end
+
+fn slice(s: str, start: int, end_idx: int) -> str
+    return s.slice(start, end_idx)
+end
+
+fn replace(s: str, old_sub: str, new_sub: str) -> str
+    return s.replace(old_sub, new_sub)
+end
+
+fn replace_all(s: str, old_sub: str, new_sub: str) -> str
+    return s.replace(old_sub, new_sub)
+end
+
+fn index_of(s: str, sub: str) -> int
+    let s_len = s.len()
+    let sub_len = sub.len()
+    if sub_len == 0 return 0 end
+    if sub_len > s_len return -1 end
+
+    mut i = 0
+    let limit = s_len - sub_len + 1
+    while i < limit
+        let part: str = s.slice(i, i + sub_len)
+        if part == sub
+            return i
+        end
+        i = i + 1
+    end
+    return -1
+end
+
+fn last_index_of(s: str, sub: str) -> int
+    let s_len = s.len()
+    let sub_len = sub.len()
+    if sub_len == 0 return s_len end
+    if sub_len > s_len return -1 end
+
+    mut i = s_len - sub_len
+    while i >= 0
+        let part: str = s.slice(i, i + sub_len)
+        if part == sub
+            return i
+        end
+        i = i - 1
+    end
+    return -1
+end
+
+fn reverse_str(s: str) -> str
+    let len = s.len()
+    if len <= 1 return s end
+    mut res = ""
+    mut i = len - 1
+    while i >= 0
+        let ch: str = s.slice(i, i + 1)
+        res = res + ch
+        i = i - 1
+    end
+    return res
+end
+
+fn is_whitespace(ch: str) -> bool
+    if ch == " " return true end
+    if ch == "	" return true end
+    if ch == "\n" return true end
+    return false
+end
+
+fn trim_start(s: str) -> str
+    let len = s.len()
+    mut i = 0
+    while i < len
+        let ch: str = s.slice(i, i + 1)
+        if not is_whitespace(ch)
+            return s.slice(i, len)
+        end
+        i = i + 1
+    end
+    return ""
+end
+
+fn trim_end(s: str) -> str
+    let len = s.len()
+    mut i = len - 1
+    while i >= 0
+        let ch: str = s.slice(i, i + 1)
+        if not is_whitespace(ch)
+            return s.slice(0, i + 1)
+        end
+        i = i - 1
+    end
+    return ""
 end

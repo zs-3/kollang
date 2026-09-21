@@ -1,0 +1,41 @@
+-- std/core.kol
+
+fn assert_true(cond: bool, msg: str)
+    if not cond
+        print("ASSERTION FAILED: " + msg)
+    end
+end
+
+fn is_even(n: int) -> bool
+    return n mod 2 == 0
+end
+
+fn is_odd(n: int) -> bool
+    return n mod 2 != 0
+end
+
+fn abs_int(x: int) -> int
+    if x < 0 return x * -1 end
+    return x
+end
+
+fn abs_float(x: float) -> float
+    if x < 0.0 return x * -1.0 end
+    return x
+end
+
+fn min_int(a: int, b: int) -> int
+    if a < b return a end
+    return b
+end
+
+fn max_int(a: int, b: int) -> int
+    if a > b return a end
+    return b
+end
+
+fn clamp_int(x: int, lo: int, hi: int) -> int
+    if x < lo return lo end
+    if x > hi return hi end
+    return x
+end

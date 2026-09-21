@@ -1,0 +1,86 @@
+-- std/array.kol
+
+fn array_len(nums: [int]) -> int
+    return nums.len()
+end
+
+fn is_empty_array(nums: [int]) -> bool
+    return nums.len() == 0
+end
+
+fn sum_array(nums: [int]) -> int
+    mut total = 0
+    for n in nums
+        total = total + n
+    end
+    return total
+end
+
+fn product_array(nums: [int]) -> int
+    mut result = 1
+    for n in nums
+        result = result * n
+    end
+    return result
+end
+
+fn max_array(nums: [int]) -> int!
+    if nums.len() == 0
+        fail "empty array"
+    end
+    mut best = nums[0]
+    for n in nums
+        if n > best
+            best = n
+        end
+    end
+    return best
+end
+
+fn min_array(nums: [int]) -> int!
+    if nums.len() == 0
+        fail "empty array"
+    end
+    mut best = nums[0]
+    for n in nums
+        if n < best
+            best = n
+        end
+    end
+    return best
+end
+
+fn array_contains(nums: [int], val: int) -> bool
+    return nums.contains(val)
+end
+
+fn array_index_of(nums: [int], val: int) -> int
+    mut i = 0
+    let len = nums.len()
+    while i < len
+        if nums[i] == val
+            return i
+        end
+        i = i + 1
+    end
+    return -1
+end
+
+fn sort_int_array(nums: [int]) -> [int]
+    mut arr = nums
+    let len = arr.len()
+    mut i = 0
+    while i < len
+        mut j = i + 1
+        while j < len
+            if arr[i] > arr[j]
+                let tmp = arr[i]
+                arr[i] = arr[j]
+                arr[j] = tmp
+            end
+            j = j + 1
+        end
+        i = i + 1
+    end
+    return arr
+end

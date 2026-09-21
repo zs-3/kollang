@@ -301,6 +301,7 @@ class Codegen:
                     elif decl.return_type.name == "float": rt = "double"
                     elif decl.return_type.name == "bool": rt = "bool"
                     elif decl.return_type.name == "int": rt = "int64_t"
+                    elif decl.return_type.name == "list": rt = "kol_array_t"
                     else: rt = decl.return_type.name
 
                 params_code = []
@@ -450,6 +451,7 @@ class Codegen:
                     elif decl.return_type.name == "float": rt = "double"
                     elif decl.return_type.name == "bool": rt = "bool"
                     elif decl.return_type.name == "int": rt = "int64_t"
+                    elif decl.return_type.name == "list": rt = "kol_array_t"
                     else: rt = decl.return_type.name
 
                 params_code = []
@@ -939,6 +941,13 @@ class Codegen:
             elif tname == "float": type_str = "double"
             elif tname == "bool": type_str = "bool"
             elif tname == "str": type_str = "KolStr"
+            elif tname == "list":
+                type_str = "kol_array_t"
+                if decl.type_annot.generic_args:
+                    elem_t = decl.type_annot.generic_args[0].name
+                    type_key = f"list_{elem_t}"
+                else:
+                    type_key = "list_int"
             else: type_str = tname
         elif decl.value:
             t_inf = self._infer_expr_type(decl.value)
@@ -980,6 +989,7 @@ class Codegen:
                 elif type_key == "bool": type_str = "bool"
                 elif type_key == "ptr": type_str = "void*"
                 elif type_key == "int": type_str = "int64_t"
+                elif type_key == "list" or type_key.startswith("list"): type_str = "kol_array_t"
                 else: type_str = type_key
             elif isinstance(decl.value, CallExpr) and isinstance(decl.value.callee, FieldAccess) and isinstance(decl.value.callee.target, Ident):
                 outer_n = decl.value.callee.target.name
@@ -1079,6 +1089,7 @@ class Codegen:
             elif rt == "float": ret_type = "double"
             elif rt == "bool": ret_type = "bool"
             elif rt == "str": ret_type = "KolStr"
+            elif rt == "list": ret_type = "kol_array_t"
             else: ret_type = rt
 
         c_fn_name = "main" if is_main else f"_kol_fn_{decl.name}"
@@ -1395,7 +1406,20 @@ class Codegen:
             else:
                 res_var = self._temp_var("res")
                 self._emit(f"KolResult {res_var} = {e_str};")
-                return f"({res_var}.ok ? {res_var}.val_int : {d_str})"
+                val_field = "val_int"
+                if isinstance(expr.expr, CallExpr) and isinstance(expr.expr.callee, Ident):
+                    fn_n = expr.expr.callee.name
+                    ret_t = self.func_ret_types.get(fn_n, "")
+                    if ret_t == "float": val_field = "val_float"
+                    elif ret_t == "str": val_field = "val_str"
+                    elif ret_t == "bool": val_field = "val_bool"
+                elif self._infer_expr_type(expr.default_val) == "float":
+                    val_field = "val_float"
+                elif self._infer_expr_type(expr.default_val) == "str":
+                    val_field = "val_str"
+                elif self._infer_expr_type(expr.default_val) == "bool":
+                    val_field = "val_bool"
+                return f"({res_var}.ok ? {res_var}.{val_field} : {d_str})"
 
         if isinstance(expr, FieldAccess):
             if isinstance(expr.target, Ident):
@@ -1418,9 +1442,14 @@ class Codegen:
             target_t = self._infer_expr_type(expr.target)
             if target_t == "KolMap_si":
                 return f"kol_map_si_get(&{target}, {idx})"
+            elem_c_t = "int64_t"
+            if target_t == "list_str": elem_c_t = "KolStr"
+            elif target_t == "list_float": elem_c_t = "double"
+            elif target_t == "list_bool": elem_c_t = "bool"
+            elif target_t.startswith("list_"): elem_c_t = target_t[5:]
             if self.release_mode:
-                return f"(((int64_t* restrict){target}.data)[{idx}])"
-            return f"(*((int64_t*)kol_array_get(&{target}, {idx}, \"{self.filename}\", {expr.location.line if expr.location else 0})))"
+                return f"((({elem_c_t}* restrict){target}.data)[{idx}])"
+            return f"(*(({elem_c_t}*)kol_array_get(&{target}, {idx}, \"{self.filename}\", {expr.location.line if expr.location else 0})))"
 
         if isinstance(expr, ListExpr):
             arr_var = self._temp_var("arr")
