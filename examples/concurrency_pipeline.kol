@@ -1,0 +1,38 @@
+-- A three-stage pipeline: generate -> square -> sum.
+-- Stages run concurrently and talk through bounded channels. Closing a channel
+-- tells the next stage that no more values are coming.
+
+task fn generate(out: channel(int), n: int)
+    for i in 1..=n
+        out.send(i)
+    end
+    out.close()
+end
+
+task fn square_stage(input: channel(int), out: channel(int))
+    for v in input
+        out.send(v * v)
+    end
+    out.close()
+end
+
+task fn sum_stage(input: channel(int)) -> int
+    mut total = 0
+    for v in input
+        total = total + v
+    end
+    return total
+end
+
+fn main()
+    let numbers = channel(int, 32)
+    let squares = channel(int, 32)
+
+    let g = spawn generate(numbers, 1000)
+    let s = spawn square_stage(numbers, squares)
+    let total = spawn sum_stage(squares)
+
+    print("sum of squares 1..1000 = {await total}")
+    await g
+    await s
+end

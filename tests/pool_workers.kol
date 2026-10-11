@@ -1,0 +1,36 @@
+-- Classic worker pool: jobs go in one channel, results come back on another.
+task fn worker(id: int, jobs: channel(int), results: channel(int))
+    for j in jobs
+        results.send(j * j)
+    end
+end
+
+fn main()
+    let jobs = channel(int, 16)
+    let results = channel(int, 16)
+
+    let w1 = spawn worker(1, jobs, results)
+    let w2 = spawn worker(2, jobs, results)
+    let w3 = spawn worker(3, jobs, results)
+
+    -- feed jobs from a task so we can drain results at the same time
+    let feeder = spawn task_feed(jobs)
+
+    mut total = 0
+    for i in 0..100
+        total = total + results.receive()
+    end
+    print(total)
+
+    await feeder
+    jobs.close()
+    await w1
+    await w2
+    await w3
+end
+
+task fn task_feed(jobs: channel(int))
+    for i in 1..=100
+        jobs.send(i)
+    end
+end

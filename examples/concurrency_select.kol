@@ -1,0 +1,35 @@
+-- select: wait for whichever channel is ready first, with a timeout.
+
+task fn sensor(name: str, out: channel(str), every_ms: int, readings: int)
+    for i in 1..=readings
+        sleep(every_ms)
+        out.send("{name} reading {i}")
+    end
+end
+
+fn main()
+    let fast = channel(str, 4)
+    let slow = channel(str, 4)
+
+    let a = spawn sensor("fast", fast, 10, 5)
+    let b = spawn sensor("slow", slow, 60, 2)
+
+    mut fast_count = 0
+    mut slow_count = 0
+    mut running = true
+    while running
+        select
+            case msg = fast.receive()
+                fast_count = fast_count + 1
+            case msg = slow.receive()
+                slow_count = slow_count + 1
+            case timeout(500)
+                print("no data for 500ms - stopping")
+                running = false
+        end
+    end
+    print("fast readings: {fast_count}")
+    print("slow readings: {slow_count}")
+    await a
+    await b
+end

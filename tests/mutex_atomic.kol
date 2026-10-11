@@ -1,0 +1,31 @@
+-- Shared state: a mutex-protected counter and an atomic counter.
+task fn bump(m: mutex, counter: atomic, hits: channel(int), n: int)
+    for i in 0..n
+        counter.add(1)
+        m.lock()
+        hits.send(1)
+        let _ = hits.receive()
+        m.unlock()
+    end
+end
+
+fn main()
+    let m = mutex()
+    let counter = atomic(0)
+    let hits = channel(int, 1)
+
+    let a, b, c, d = await all(
+        bump(m, counter, hits, 5000),
+        bump(m, counter, hits, 5000),
+        bump(m, counter, hits, 5000),
+        bump(m, counter, hits, 5000))
+    print(counter.load())
+
+    print(counter.swap(7))
+    print(counter.cas(7, 8))
+    print(counter.cas(7, 9))
+    print(counter.load())
+    print(m.try_lock())
+    print(m.try_lock())
+    m.unlock()
+end

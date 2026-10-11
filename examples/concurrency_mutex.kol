@@ -1,0 +1,23 @@
+-- Shared state: use an atomic for a simple counter, a mutex for a critical section.
+
+task fn deposit(balance: atomic, lock: mutex, log: channel(int), times: int)
+    for i in 0..times
+        balance.add(10)              -- atomic: no lock needed
+        lock.lock()                  -- mutex: only one task in here at a time
+        log.send(1)
+        let ignored = log.receive()
+        lock.unlock()
+    end
+end
+
+fn main()
+    let balance = atomic(0)
+    let lock = mutex()
+    let log = channel(int, 1)
+
+    let a, b, c = await all(
+        deposit(balance, lock, log, 1000),
+        deposit(balance, lock, log, 1000),
+        deposit(balance, lock, log, 1000))
+    print("balance = {balance.load()}")
+end

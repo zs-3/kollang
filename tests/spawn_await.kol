@@ -1,0 +1,43 @@
+-- spawn starts a task on the thread pool and returns a future; await collects it.
+task fn square(n: int) -> int
+    return n * n
+end
+
+task fn shout(s: str) -> str
+    return s.upper() + "!"
+end
+
+task fn average(xs: [int]) -> float
+    mut total = 0
+    for x in xs
+        total = total + x
+    end
+    return total / xs.len()
+end
+
+task fn log_line(msg: str)
+    print("log: {msg}")
+end
+
+fn main()
+    let f = spawn square(7)
+    print(await f)
+    print(await f)
+
+    let words = spawn shout("a string that is longer than fourteen bytes")
+    print(await words)
+
+    let nums = [2, 4, 6, 8]
+    let avg = spawn average(nums)
+    print(await avg)
+
+    let l = spawn log_line("hello from a task")
+    await l
+
+    print(await square(9))
+
+    let done_f = spawn square(2)
+    let v = await done_f
+    print(done_f.done())
+    print(v)
+end

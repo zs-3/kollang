@@ -40,6 +40,9 @@ class TokenType(Enum):
     DEFER = auto()
     CHANNEL = auto()
     ALL = auto()
+    SPAWN = auto()
+    SELECT = auto()
+    CASE = auto()
     USE = auto()
     FROM = auto()
     AS = auto()
@@ -152,6 +155,9 @@ KEYWORDS = {
     "defer": TokenType.DEFER,
     "channel": TokenType.CHANNEL,
     "all": TokenType.ALL,
+    "spawn": TokenType.SPAWN,
+    "select": TokenType.SELECT,
+    "case": TokenType.CASE,
     "use": TokenType.USE,
     "from": TokenType.FROM,
     "as": TokenType.AS,

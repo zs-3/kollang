@@ -326,6 +326,24 @@ class AllExpr(ASTNode):
 @dataclass
 class ChannelExpr(ASTNode):
     elem_type: Optional[TypeAnnotation] = None
+    capacity: Optional[ASTNode] = None
+
+@dataclass
+class SpawnExpr(ASTNode):
+    call: ASTNode = field(default_factory=ASTNode)
+
+@dataclass
+class SelectArm(ASTNode):
+    # kind: "receive" | "send" | "timeout" | "default"
+    kind: str = "default"
+    names: List[str] = field(default_factory=list)     # receive bindings: value[, ok]
+    channel: Optional[ASTNode] = None                  # receive/send: the channel expression
+    value: Optional[ASTNode] = None                    # send: value to send; timeout: milliseconds
+    body: List[ASTNode] = field(default_factory=list)
+
+@dataclass
+class SelectStmt(ASTNode):
+    arms: List[SelectArm] = field(default_factory=list)
 
 @dataclass
 class MultiAssignStmt(ASTNode):

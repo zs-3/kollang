@@ -28,6 +28,31 @@ let result = add(10, 20)
 print("Result: {result}")
 ```
 
+## Concurrency
+
+Kol has real, thread-pool based concurrency: `spawn`/`await` tasks, buffered
+channels, `select` (with `timeout`/`else`), mutexes, atomics, and runtime
+deadlock detection.
+
+```kol
+fn square(n: int) -> int
+    return n * n
+end
+
+let f = spawn square(12)
+print(await f)
+
+let ch = channel(int, 8)
+spawn producer(ch)
+for v in ch
+    print(v)
+end
+```
+
+See [docs/concurrency.md](docs/concurrency.md) for the full guide,
+`examples/concurrency_*.kol` for runnable programs and
+`benchmarks/concurrency/` for the benchmark suite against C, Go and Nim.
+
 ## Running Tests
 
 ```bash

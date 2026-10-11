@@ -1,0 +1,45 @@
+-- Kol concurrency in five minutes.
+--
+--   task fn   a function that is allowed to run on another thread
+--   spawn     start a task on the thread pool, get a future back immediately
+--   await     wait for a future (or call a task and wait right away)
+--   all(...)  start several tasks and wait for all of them
+
+task fn slow_square(n: int) -> int
+    sleep(100)                       -- pretend this is real work
+    return n * n
+end
+
+task fn greet(name: str) -> str
+    return "hello, " + name
+end
+
+fn main()
+    -- 1. spawn returns at once; the task runs in the background
+    let a = spawn slow_square(6)
+    let b = spawn slow_square(7)
+    print("both tasks are running...")
+    print(await a + await b)         -- 36 + 49
+
+    -- 2. await on a plain call just calls it - no thread involved
+    print(await slow_square(3))
+
+    -- 3. all(...) is the short form for a fixed set of tasks
+    let x, y, z = await all(slow_square(1), slow_square(2), slow_square(3))
+    print("x={x} y={y} z={z}")
+
+    -- 4. tasks can return strings, lists and structs too
+    let msg = spawn greet("Kol")
+    print(await msg)
+
+    -- 5. a list of futures: fan out, then collect
+    mut jobs: [future(int)] = []
+    for i in 1..=8
+        jobs.push(spawn slow_square(i))
+    end
+    mut total = 0
+    for job in jobs
+        total = total + await job
+    end
+    print("sum of squares 1..8 = {total}")
+end

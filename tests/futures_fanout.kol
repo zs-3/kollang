@@ -1,0 +1,34 @@
+-- Dynamic fan-out: spawn a task per item, keep the futures in a list, await them all.
+task fn work(n: int) -> int
+    mut s = 0
+    for i in 0..1000
+        s = s + (i * n) % 7
+    end
+    return s + n
+end
+
+task fn fib(n: int) -> int
+    if n < 2
+        return n
+    end
+    let a = spawn fib(n - 1)
+    let b = spawn fib(n - 2)
+    return (await a) + (await b)
+end
+
+fn main()
+    mut jobs: [future(int)] = []
+    for i in 0..50
+        jobs.push(spawn work(i))
+    end
+    mut total = 0
+    for j in jobs
+        total = total + await j
+    end
+    print(total)
+
+    -- tasks that spawn and await more tasks must never deadlock the pool
+    print(await fib(18))
+    let r = spawn fib(15)
+    print(await r)
+end

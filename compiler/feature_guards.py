@@ -51,6 +51,9 @@ from compiler.ast_nodes import (
     AwaitExpr,
     AllExpr,
     MultiAssignStmt,
+    SpawnExpr,
+    SelectStmt,
+    ChannelExpr,
 )
 
 # raw blocks already fail at the lexer (raw C syntax like ';' is not a valid Kol token) and don't need a guard here.
@@ -283,6 +286,21 @@ def check_unimplemented_features(ast: ASTNode) -> List[KolError]:
         elif isinstance(node, AllExpr):
             for t in node.tasks:
                 _walk(t)
+
+        elif isinstance(node, SpawnExpr):
+            _walk(node.call)
+
+        elif isinstance(node, ChannelExpr):
+            if node.capacity:
+                _walk(node.capacity)
+
+        elif isinstance(node, SelectStmt):
+            for arm in node.arms:
+                for part in (arm.channel, arm.value):
+                    if part is not None:
+                        _walk(part)
+                for st in arm.body:
+                    _walk(st)
 
         elif isinstance(node, MultiAssignStmt):
             if isinstance(node.value, AwaitExpr) and isinstance(node.value.task_expr, AllExpr):
