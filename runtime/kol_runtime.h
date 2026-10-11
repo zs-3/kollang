@@ -16,55 +16,8 @@
  * ============================================================================ */
 
 static inline void kol_panic(const char* file, int line, const char* message) {
-    fflush(stdout);
     fprintf(stderr, "Kol Panic at %s:%d: %s\n", file, line, message);
     exit(1);
-}
-
-/* Panic without a source location (used by the runtime itself). */
-static inline void kol_rt_panic(const char* message) {
-    fflush(stdout);
-    fprintf(stderr, "Kol Panic: %s\n", message);
-    exit(1);
-}
-
-/* ============================================================================
- * THREAD MODE + REFCOUNTED HANDLE OBJECTS
- *
- * kol_mt is set to 1 *before* the first worker thread is created. Until then the
- * program is single-threaded and reference counts use plain (fast) operations;
- * afterwards every refcount operation is atomic, so strings and handles can be
- * shared safely between tasks.
- * ============================================================================ */
-
-static int kol_mt = 0;
-
-static inline uint32_t kol_rc_inc(uint32_t* rc) {
-    if (kol_mt) return __atomic_add_fetch(rc, 1, __ATOMIC_RELAXED);
-    return ++(*rc);
-}
-static inline uint32_t kol_rc_dec(uint32_t* rc) {
-    if (kol_mt) return __atomic_sub_fetch(rc, 1, __ATOMIC_ACQ_REL);
-    return --(*rc);
-}
-static inline uint32_t kol_rc_get(uint32_t* rc) {
-    if (kol_mt) return __atomic_load_n(rc, __ATOMIC_ACQUIRE);
-    return *rc;
-}
-
-/* Every shared runtime object (channel, future, mutex, atomic) starts with this. */
-typedef struct KolObj {
-    uint32_t refs;
-    void (*destroy)(struct KolObj*);
-} KolObj;
-
-static inline void kol_obj_retain(void* p) {
-    if (p) kol_rc_inc(&((KolObj*)p)->refs);
-}
-static inline void kol_obj_release(void* p) {
-    if (!p) return;
-    KolObj* o = (KolObj*)p;
-    if (kol_rc_dec(&o->refs) == 0) o->destroy(o);
 }
 
 /* ============================================================================
@@ -232,17 +185,24 @@ static inline KolStr kol_str_slice(KolStr s, int64_t from, int64_t to) {
 
 static inline void kol_arc_retain_str(KolStr s) {
     if (s.is_heap && s.heap.ptr) {
-        kol_rc_inc(&s.heap.ptr->ref_count);
+        s.heap.ptr->ref_count++;
     }
 }
 
 static inline void kol_arc_release_str(KolStr s) {
     if (s.is_heap && s.heap.ptr) {
-        if (kol_rc_dec(&s.heap.ptr->ref_count) == 0) {
+        s.heap.ptr->ref_count--;
+        if (s.heap.ptr->ref_count == 0) {
             if (s.heap.ptr->data) free(s.heap.ptr->data);
             free(s.heap.ptr);
         }
     }
+}
+
+/* release `s` unless the concat result `res` reuses its buffer */
+static inline void kol_arc_release_str_unless(KolStr s, KolStr res) {
+    if (s.is_heap && res.is_heap && s.heap.ptr == res.heap.ptr) return;
+    kol_arc_release_str(s);
 }
 
 static inline bool kol_str_eq(KolStr a, KolStr b) {
@@ -250,6 +210,16 @@ static inline bool kol_str_eq(KolStr a, KolStr b) {
     size_t lb = kol_str_len(b);
     if (la != lb) return false;
     return memcmp(kol_str_cstr(&a), kol_str_cstr(&b), la) == 0;
+}
+
+/* lexicographic byte comparison: <0, 0, >0 */
+static inline int kol_str_cmp(KolStr a, KolStr b) {
+    size_t la = kol_str_len(a);
+    size_t lb = kol_str_len(b);
+    size_t n = la < lb ? la : lb;
+    int c = n ? memcmp(kol_str_cstr(&a), kol_str_cstr(&b), n) : 0;
+    if (c != 0) return c;
+    return (la > lb) - (la < lb);
 }
 
 static inline bool kol_str_neq(KolStr a, KolStr b) {
@@ -261,7 +231,7 @@ static inline KolStr kol_str_concat(KolStr a, KolStr b) {
     size_t lb = kol_str_len(b);
     size_t total = la + lb;
 
-    if (a.is_heap && a.heap.ptr && kol_rc_get(&a.heap.ptr->ref_count) == 1 && total <= a.heap.ptr->capacity) {
+    if (a.is_heap && a.heap.ptr && a.heap.ptr->ref_count == 1 && total <= a.heap.ptr->capacity) {
         memcpy(a.heap.ptr->data + la, kol_str_cstr(&b), lb);
         a.heap.ptr->data[total] = '\0';
         a.heap.ptr->len = total;
@@ -285,12 +255,6 @@ static inline KolStr kol_str_concat(KolStr a, KolStr b) {
 }
 
 static inline void kol_str_append(KolStr* s, KolStr other) {
-    /* Copy-on-write: never mutate a heap buffer that another variable or task shares. */
-    if (s->is_heap && s->heap.ptr && kol_rc_get(&s->heap.ptr->ref_count) > 1) {
-        KolStr own = kol_str_create(kol_str_cstr(s));
-        kol_arc_release_str(*s);
-        *s = own;
-    }
     size_t la = kol_str_len(*s);
     size_t lb = kol_str_len(other);
     size_t total = la + lb;
@@ -520,6 +484,23 @@ typedef struct {
     size_t elem_size;
 } kol_array_t;
 
+/* Array results for `fn f() -> [T]!`.  KolResult is declared before kol_array_t,
+ * so the array travels in a small heap box that take_arr unwraps and frees. */
+static inline KolResult kol_result_ok_arr(kol_array_t v) {
+    KolResult r;
+    r.ok = true;
+    kol_array_t* box = (kol_array_t*)malloc(sizeof(kol_array_t));
+    *box = v;
+    r.val_ptr = box;
+    return r;
+}
+static inline kol_array_t kol_result_take_arr(KolResult r) {
+    kol_array_t* box = (kol_array_t*)r.val_ptr;
+    kol_array_t v = *box;
+    free(box);
+    return v;
+}
+
 static inline kol_array_t kol_array_create(size_t elem_size, size_t initial_capacity) {
     kol_array_t arr;
     arr.elem_size = elem_size;
@@ -572,14 +553,45 @@ static inline void kol_array_free_strs(kol_array_t* arr) {
     arr->capacity = 0;
 }
 
-/* Deep-ish copies used when a list crosses a task boundary (share-nothing). */
+static inline void kol_array_pop(kol_array_t* a) {
+    if (a->len > 0) {
+        a->len--;
+    }
+}
+
+/* pop that hands the removed element back (strings: ownership moves to caller) */
+static inline int64_t kol_array_pop_int(kol_array_t* a) {
+    if (a->len == 0) return 0;
+    a->len--;
+    return ((int64_t*)a->data)[a->len];
+}
+static inline double kol_array_pop_float(kol_array_t* a) {
+    if (a->len == 0) return 0.0;
+    a->len--;
+    return ((double*)a->data)[a->len];
+}
+static inline bool kol_array_pop_bool(kol_array_t* a) {
+    if (a->len == 0) return false;
+    a->len--;
+    return ((bool*)a->data)[a->len];
+}
+static inline KolStr kol_array_pop_str(kol_array_t* a) {
+    if (a->len == 0) return kol_str_create("");
+    a->len--;
+    return ((KolStr*)a->data)[a->len];
+}
+
+/* independent copy of an array (value semantics for `let b = a`, `b = a`) */
 static inline kol_array_t kol_array_clone(const kol_array_t* a) {
     kol_array_t c = kol_array_create(a->elem_size, a->len);
-    if (a->len) memcpy(c.data, a->data, a->len * a->elem_size);
+    if (a->len > 0 && a->data) {
+        memcpy(c.data, a->data, a->len * a->elem_size);
+    }
     c.len = a->len;
     return c;
 }
 
+/* clone of a [str]: every element gains a reference */
 static inline kol_array_t kol_array_clone_strs(const kol_array_t* a) {
     kol_array_t c = kol_array_clone(a);
     KolStr* strs = (KolStr*)c.data;
@@ -587,27 +599,12 @@ static inline kol_array_t kol_array_clone_strs(const kol_array_t* a) {
     return c;
 }
 
-/* Lists whose elements are refcounted handles (channels, futures, ...). */
-static inline void kol_array_free_objs(kol_array_t* arr) {
-    if (arr->data) {
-        void** objs = (void**)arr->data;
-        for (size_t i = 0; i < arr->len; i++) kol_obj_release(objs[i]);
-        free(arr->data);
-        arr->data = NULL;
-    }
-    arr->len = 0;
-    arr->capacity = 0;
-}
-
-static inline void kol_array_retain_objs(const kol_array_t* arr) {
-    void** objs = (void**)arr->data;
-    for (size_t i = 0; i < arr->len; i++) kol_obj_retain(objs[i]);
-}
-
-static inline void kol_array_pop(kol_array_t* a) {
-    if (a->len > 0) {
-        a->len--;
-    }
+/* replace a [str] element, releasing the one it overwrites */
+static inline void kol_array_set_str(kol_array_t* a, size_t i, KolStr v, const char* file, int line) {
+    if (i >= a->len) kol_panic(file, line, "Array index out of bounds");
+    KolStr* strs = (KolStr*)a->data;
+    kol_arc_release_str(strs[i]);
+    strs[i] = v;
 }
 
 static inline void kol_array_reverse(kol_array_t* a) {
@@ -739,14 +736,62 @@ static inline int64_t kol_map_si_get(KolMap_si* m, KolStr key) {
 }
 
 /* ============================================================================
- * CONCURRENCY (tasks, futures, channels, select, mutex, atomics)
- * Only compiled in when the program uses it (the compiler defines
- * KOL_USE_CONCURRENCY), so single-threaded programs pay nothing.
+ * CHANNELS
  * ============================================================================ */
 
-#ifdef KOL_USE_CONCURRENCY
-#include "kol_conc.h"
-#endif
+typedef struct {
+    void* data;
+    size_t elem_size;
+    int has_value;
+    pthread_mutex_t mutex;
+    pthread_cond_t  can_send;
+    pthread_cond_t  can_recv;
+    int closed;
+} KolChannel;
+
+static inline KolChannel* kol_channel_create(size_t elem_size) {
+    KolChannel* ch = (KolChannel*)malloc(sizeof(KolChannel));
+    ch->data = malloc(elem_size);
+    ch->elem_size = elem_size;
+    ch->has_value = 0;
+    ch->closed = 0;
+    pthread_mutex_init(&ch->mutex, NULL);
+    pthread_cond_init(&ch->can_send, NULL);
+    pthread_cond_init(&ch->can_recv, NULL);
+    return ch;
+}
+
+static inline void kol_channel_send(KolChannel* ch, void* value) {
+    pthread_mutex_lock(&ch->mutex);
+    while (ch->has_value && !ch->closed)
+        pthread_cond_wait(&ch->can_send, &ch->mutex);
+    if (!ch->closed) {
+        memcpy(ch->data, value, ch->elem_size);
+        ch->has_value = 1;
+        pthread_cond_signal(&ch->can_recv);
+    }
+    pthread_mutex_unlock(&ch->mutex);
+}
+
+static inline void kol_channel_recv(KolChannel* ch, void* out) {
+    pthread_mutex_lock(&ch->mutex);
+    while (!ch->has_value && !ch->closed)
+        pthread_cond_wait(&ch->can_recv, &ch->mutex);
+    if (ch->has_value) {
+        memcpy(out, ch->data, ch->elem_size);
+        ch->has_value = 0;
+        pthread_cond_signal(&ch->can_send);
+    }
+    pthread_mutex_unlock(&ch->mutex);
+}
+
+static inline void kol_channel_close(KolChannel* ch) {
+    pthread_mutex_lock(&ch->mutex);
+    ch->closed = 1;
+    pthread_cond_broadcast(&ch->can_recv);
+    pthread_cond_broadcast(&ch->can_send);
+    pthread_mutex_unlock(&ch->mutex);
+}
 
 /* ============================================================================
  * SYSTEM MEMORY HELPERS
@@ -780,6 +825,285 @@ static inline void kol_print_str(KolStr s) {
 
 static inline void kol_print_none(void) {
     printf("none\n");
+}
+
+
+/* ============================================================================
+ * STANDARD LIBRARY SUPPORT
+ * Small, self-contained helpers used by the std .kol modules through `extern fn`.
+ * All of them take/return plain Kol values (int, float, bool, str) so they can
+ * be bound with `extern fn name(...) -> T from "kol_runtime"`.
+ * ============================================================================ */
+
+#include <errno.h>
+#include <time.h>
+#include <unistd.h>
+#include <sys/stat.h>
+
+/* ---- characters --------------------------------------------------------- */
+
+static inline int64_t kol_ord(KolStr s) {
+    if (kol_str_len(s) == 0) return -1;
+    return (int64_t)(unsigned char)kol_str_cstr(&s)[0];
+}
+
+static inline KolStr kol_chr(int64_t code) {
+    char buf[2];
+    buf[0] = (char)(code & 0xFF);
+    buf[1] = '\0';
+    if (code <= 0 || code > 255) buf[0] = '\0';
+    return kol_str_create(buf);
+}
+
+/* ord of the character at byte index i, or -1 when out of range */
+static inline int64_t kol_char_code_at(KolStr s, int64_t i) {
+    if (i < 0 || (size_t)i >= kol_str_len(s)) return -1;
+    return (int64_t)(unsigned char)kol_str_cstr(&s)[i];
+}
+
+/* first index of sub in s at or after `from`, or -1 */
+static inline int64_t kol_str_find(KolStr s, KolStr sub, int64_t from) {
+    size_t ls = kol_str_len(s), lsub = kol_str_len(sub);
+    if (from < 0) from = 0;
+    if ((size_t)from > ls) return -1;
+    if (lsub == 0) return from;
+    const char* cs = kol_str_cstr(&s);
+    const char* hit = strstr(cs + from, kol_str_cstr(&sub));
+    if (!hit) return -1;
+    return (int64_t)(hit - cs);
+}
+
+/* ---- number parsing ----------------------------------------------------- */
+
+/* 1 when the whole string is a valid float literal, else 0 */
+static inline bool kol_str_is_float(KolStr s) {
+    const char* cs = kol_str_cstr(&s);
+    if (*cs == '\0' || isspace((unsigned char)*cs)) return false;
+    char* end = NULL;
+    errno = 0;
+    strtod(cs, &end);
+    return end && *end == '\0' && errno == 0;
+}
+
+static inline double kol_str_to_float(KolStr s) {
+    return strtod(kol_str_cstr(&s), NULL);
+}
+
+/* ---- file system -------------------------------------------------------- */
+
+static inline bool kol_file_exists(KolStr path) {
+    struct stat st;
+    return stat(kol_str_cstr(&path), &st) == 0;
+}
+
+static inline bool kol_dir_exists(KolStr path) {
+    struct stat st;
+    return stat(kol_str_cstr(&path), &st) == 0 && S_ISDIR(st.st_mode);
+}
+
+static inline int64_t kol_file_size(KolStr path) {
+    struct stat st;
+    if (stat(kol_str_cstr(&path), &st) != 0) return -1;
+    return (int64_t)st.st_size;
+}
+
+/* whole file as a string; empty string when unreadable (check kol_file_exists) */
+static inline KolStr kol_file_read(KolStr path) {
+    FILE* f = fopen(kol_str_cstr(&path), "rb");
+    if (!f) return kol_str_create("");
+    fseek(f, 0, SEEK_END);
+    long n = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    if (n < 0) { fclose(f); return kol_str_create(""); }
+    char* buf = (char*)malloc((size_t)n + 1);
+    if (!buf) { fclose(f); return kol_str_create(""); }
+    size_t got = fread(buf, 1, (size_t)n, f);
+    buf[got] = '\0';
+    fclose(f);
+    KolStr res = kol_str_create(buf);
+    free(buf);
+    return res;
+}
+
+static inline bool kol_file_write_mode(KolStr path, KolStr data, const char* mode) {
+    FILE* f = fopen(kol_str_cstr(&path), mode);
+    if (!f) return false;
+    size_t n = kol_str_len(data);
+    size_t put = n ? fwrite(kol_str_cstr(&data), 1, n, f) : 0;
+    int rc = fclose(f);
+    return put == n && rc == 0;
+}
+
+static inline bool kol_file_write(KolStr path, KolStr data)  { return kol_file_write_mode(path, data, "wb"); }
+static inline bool kol_file_append(KolStr path, KolStr data) { return kol_file_write_mode(path, data, "ab"); }
+static inline bool kol_file_remove(KolStr path) { return remove(kol_str_cstr(&path)) == 0; }
+static inline bool kol_file_rename(KolStr from, KolStr to) { return rename(kol_str_cstr(&from), kol_str_cstr(&to)) == 0; }
+static inline bool kol_dir_make(KolStr path) { return mkdir(kol_str_cstr(&path), 0777) == 0; }
+
+/* ---- environment / process --------------------------------------------- */
+
+static inline bool kol_env_has(KolStr name) { return getenv(kol_str_cstr(&name)) != NULL; }
+
+static inline KolStr kol_env_get(KolStr name) {
+    const char* v = getenv(kol_str_cstr(&name));
+    return kol_str_create(v ? v : "");
+}
+
+static inline KolStr kol_cwd(void) {
+    char buf[4096];
+    if (!getcwd(buf, sizeof(buf))) return kol_str_create("");
+    return kol_str_create(buf);
+}
+
+static inline void kol_exit(int64_t code) { fflush(stdout); exit((int)code); }
+
+/* ---- time --------------------------------------------------------------- */
+
+static inline int64_t kol_time_unix(void) { return (int64_t)time(NULL); }
+
+static inline int64_t kol_time_ms(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (int64_t)ts.tv_sec * 1000 + (int64_t)(ts.tv_nsec / 1000000);
+}
+
+static inline int64_t kol_time_ns(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (int64_t)ts.tv_sec * 1000000000LL + (int64_t)ts.tv_nsec;
+}
+
+static inline void kol_sleep_ms(int64_t ms) {
+    if (ms <= 0) return;
+    struct timespec ts;
+    ts.tv_sec = (time_t)(ms / 1000);
+    ts.tv_nsec = (long)((ms % 1000) * 1000000L);
+    nanosleep(&ts, NULL);
+}
+
+/* broken-down UTC time for a unix timestamp. field: 0=year 1=month 2=day
+ * 3=hour 4=minute 5=second 6=weekday(0=Sunday) 7=day-of-year(1-based) */
+static inline int64_t kol_time_field(int64_t unix_ts, int64_t field) {
+    time_t t = (time_t)unix_ts;
+    struct tm tmv;
+    if (!gmtime_r(&t, &tmv)) return -1;
+    switch (field) {
+        case 0: return tmv.tm_year + 1900;
+        case 1: return tmv.tm_mon + 1;
+        case 2: return tmv.tm_mday;
+        case 3: return tmv.tm_hour;
+        case 4: return tmv.tm_min;
+        case 5: return tmv.tm_sec;
+        case 6: return tmv.tm_wday;
+        case 7: return tmv.tm_yday + 1;
+    }
+    return -1;
+}
+
+/* ---- random (xorshift64*, per-thread state) ----------------------------- */
+
+static _Thread_local uint64_t kol_rng_state = 0x9E3779B97F4A7C15ULL;
+
+static inline void kol_rand_seed(int64_t seed) {
+    uint64_t s = (uint64_t)seed;
+    s += 0x9E3779B97F4A7C15ULL;
+    s = (s ^ (s >> 30)) * 0xBF58476D1CE4E5B9ULL;
+    s = (s ^ (s >> 27)) * 0x94D049BB133111EBULL;
+    s ^= s >> 31;
+    kol_rng_state = s ? s : 0x9E3779B97F4A7C15ULL;
+}
+
+/* non-negative 62-bit pseudo random integer */
+static inline int64_t kol_rand_next(void) {
+    uint64_t x = kol_rng_state;
+    x ^= x >> 12;
+    x ^= x << 25;
+    x ^= x >> 27;
+    kol_rng_state = x;
+    return (int64_t)((x * 0x2545F4914F6CDD1DULL) >> 2);
+}
+
+/* ---- console input / output -------------------------------------------- */
+
+static inline void kol_write(KolStr s)  { fputs(kol_str_cstr(&s), stdout); }
+static inline void kol_ewrite(KolStr s) { fputs(kol_str_cstr(&s), stderr); }
+static inline void kol_eprint_line(KolStr s) { fprintf(stderr, "%s\n", kol_str_cstr(&s)); }
+static inline void kol_flush(void) { fflush(stdout); }
+
+static _Thread_local bool kol_stdin_at_eof = false;
+
+/* next line of stdin without the trailing newline; sets the EOF flag at end */
+static inline KolStr kol_read_line(void) {
+    size_t cap = 128, len = 0;
+    char* buf = (char*)malloc(cap);
+    int c;
+    bool got_any = false;
+    while ((c = fgetc(stdin)) != EOF) {
+        got_any = true;
+        if (c == '\n') break;
+        if (len + 2 > cap) { cap *= 2; buf = (char*)realloc(buf, cap); }
+        buf[len++] = (char)c;
+    }
+    if (c == EOF && !got_any) kol_stdin_at_eof = true;
+    if (len > 0 && buf[len - 1] == '\r') len--;
+    buf[len] = '\0';
+    KolStr res = kol_str_create(buf);
+    free(buf);
+    return res;
+}
+
+static inline bool kol_stdin_eof(void) { return kol_stdin_at_eof; }
+
+
+/* ---- bit operations (the parser has no bitwise operators yet) ----------- */
+
+static inline int64_t kol_bit_and(int64_t a, int64_t b) { return a & b; }
+static inline int64_t kol_bit_or(int64_t a, int64_t b)  { return a | b; }
+static inline int64_t kol_bit_xor(int64_t a, int64_t b) { return a ^ b; }
+static inline int64_t kol_bit_not(int64_t a) { return ~a; }
+static inline int64_t kol_bit_shl(int64_t a, int64_t n) {
+    if (n < 0 || n > 63) return 0;
+    return (int64_t)((uint64_t)a << n);
+}
+/* arithmetic shift right */
+static inline int64_t kol_bit_shr(int64_t a, int64_t n) {
+    if (n < 0) return 0;
+    if (n > 63) return a < 0 ? -1 : 0;
+    return a >> n;
+}
+static inline int64_t kol_bit_popcount(int64_t a) {
+    uint64_t x = (uint64_t)a;
+    int64_t c = 0;
+    while (x) { x &= x - 1; c++; }
+    return c;
+}
+
+/* ---- hashing ------------------------------------------------------------ */
+
+/* FNV-1a, folded to a non-negative 62-bit int */
+static inline int64_t kol_hash_fnv1a(KolStr s) {
+    const unsigned char* p = (const unsigned char*)kol_str_cstr(&s);
+    uint64_t h = 1469598103934665603ULL;
+    while (*p) { h ^= *p++; h *= 1099511628211ULL; }
+    return (int64_t)(h >> 2);
+}
+
+static inline int64_t kol_hash_djb2(KolStr s) {
+    const unsigned char* p = (const unsigned char*)kol_str_cstr(&s);
+    uint64_t h = 5381;
+    while (*p) h = ((h << 5) + h) + *p++;
+    return (int64_t)(h >> 2);
+}
+
+static inline int64_t kol_hash_crc32(KolStr s) {
+    const unsigned char* p = (const unsigned char*)kol_str_cstr(&s);
+    uint32_t crc = 0xFFFFFFFFu;
+    while (*p) {
+        crc ^= *p++;
+        for (int k = 0; k < 8; k++)
+            crc = (crc >> 1) ^ (0xEDB88320u & (uint32_t)(-(int32_t)(crc & 1)));
+    }
+    return (int64_t)(crc ^ 0xFFFFFFFFu);
 }
 
 #endif /* KOL_RUNTIME_H */
