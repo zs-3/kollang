@@ -684,16 +684,20 @@ class Parser:
             self._advance()
 
         imports = []
+        aliases = {}
         if self._match(TokenType.COLON):
             self._expect(TokenType.LPAREN, "(")
             while not self._check(TokenType.RPAREN, TokenType.EOF):
                 imp = self._expect(TokenType.IDENT, "imported identifier").value
                 imports.append(imp)
+                if self._match(TokenType.AS):
+                    alias = self._expect(TokenType.IDENT, "alias name after 'as'").value
+                    aliases[imp] = alias
                 if not self._check(TokenType.RPAREN):
                     self._expect(TokenType.COMMA, ",")
             self._expect(TokenType.RPAREN, ")")
 
-        return UseStmt(path=path_str.strip(), imports=imports, location=loc)
+        return UseStmt(path=path_str.strip(), imports=imports, aliases=aliases, location=loc)
 
     def _parse_expr(self) -> ASTNode:
         if self._check(TokenType.IDENT) and self._peek().type == TokenType.ARROW:

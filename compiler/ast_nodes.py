@@ -1,6 +1,6 @@
 # compiler/ast_nodes.py
 from dataclasses import dataclass, field
-from typing import List, Optional, Any
+from typing import List, Optional, Any, Dict
 from compiler.errors import SourceLocation
 
 @dataclass
@@ -187,6 +187,7 @@ class AsmStmt(ASTNode):
 class UseStmt(ASTNode):
     path: str = ""
     imports: List[str] = field(default_factory=list)
+    aliases: Dict[str, str] = field(default_factory=dict)  # original_name -> local_alias
 
 @dataclass
 class ExternDecl(ASTNode):

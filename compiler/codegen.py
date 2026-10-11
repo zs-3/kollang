@@ -840,12 +840,19 @@ class Codegen:
                 if t_inf == "str": ret_type_c = "KolStr"
                 elif t_inf == "float": ret_type_c = "double"
                 elif t_inf == "bool": ret_type_c = "bool"
+                elif t_inf.startswith("list") or t_inf == "kol_array_t": ret_type_c = "kol_array_t"
+                elif t_inf.startswith("channel"): ret_type_c = "KolChannel*"
+                elif t_inf == "ptr": ret_type_c = "void*"
+                elif t_inf in self.struct_fields or t_inf in self.enum_defs: ret_type_c = t_inf
 
                 ret_var = stmt.value.name if isinstance(stmt.value, Ident) else None
                 self._emit(f"{ret_type_c} _kol_ret_val = {val};")
                 self._emit_all_active_scope_cleanups(skip_var=ret_var)
                 if current_fn_fallible:
-                    self._emit("return kol_result_ok_int(_kol_ret_val);")
+                    if t_inf == "str": self._emit("return kol_result_ok_str(_kol_ret_val);")
+                    elif t_inf == "float": self._emit("return kol_result_ok_float(_kol_ret_val);")
+                    elif t_inf == "bool": self._emit("return kol_result_ok_bool(_kol_ret_val);")
+                    else: self._emit("return kol_result_ok_int(_kol_ret_val);")
                 elif current_fn_optional:
                     if isinstance(stmt.value, NoneLit):
                         if opt_ret_kind == "str": self._emit("return kol_opt_str_none();")
@@ -1241,7 +1248,10 @@ class Codegen:
                     val = self._gen_expr(stmt)
                     self._emit_defers()
                     if is_fallible:
-                        self._emit(f"return kol_result_ok_int({val});")
+                        if rt == "str": self._emit(f"return kol_result_ok_str({val});")
+                        elif rt == "float": self._emit(f"return kol_result_ok_float({val});")
+                        elif rt == "bool": self._emit(f"return kol_result_ok_bool({val});")
+                        else: self._emit(f"return kol_result_ok_int({val});")
                     elif is_optional:
                         if isinstance(stmt, NoneLit):
                             if opt_ret_kind == "str": self._emit("return kol_opt_str_none();")
@@ -1834,6 +1844,13 @@ class Codegen:
         return "0"
 
     def _infer_expr_type(self, expr: ASTNode) -> str:
+        if isinstance(expr, IndexExpr):
+            target_t = self._infer_expr_type(expr.target)
+            if target_t == "list_str": return "str"
+            elif target_t == "list_float": return "float"
+            elif target_t == "list_bool": return "bool"
+            elif target_t.startswith("list_"): return target_t[5:]
+            return "int"
         if isinstance(expr, ChannelExpr):
             elem_n = expr.elem_type.name if expr.elem_type else "int"
             return f"channel_{elem_n}"

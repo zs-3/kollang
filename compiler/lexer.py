@@ -42,6 +42,7 @@ class TokenType(Enum):
     ALL = auto()
     USE = auto()
     FROM = auto()
+    AS = auto()
     EXTERN = auto()
     WHEN = auto()
     WHERE = auto()
@@ -153,6 +154,7 @@ KEYWORDS = {
     "all": TokenType.ALL,
     "use": TokenType.USE,
     "from": TokenType.FROM,
+    "as": TokenType.AS,
     "extern": TokenType.EXTERN,
     "when": TokenType.WHEN,
     "where": TokenType.WHERE,
