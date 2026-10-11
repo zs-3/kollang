@@ -402,6 +402,8 @@ typedef struct {
 } KolResult;
 
 static inline KolResult kol_result_ok_int(int64_t v) { KolResult r; r.ok = true; r.val_int = v; return r; }
+static inline KolResult kol_result_ok_float(double v) { KolResult r; r.ok = true; r.val_float = v; return r; }
+static inline KolResult kol_result_ok_bool(bool v) { KolResult r; r.ok = true; r.val_bool = v; return r; }
 static inline KolResult kol_result_ok_str(KolStr v) { KolResult r; r.ok = true; r.val_str = v; return r; }
 static inline KolResult kol_result_err(KolStr err) { KolResult r; r.ok = false; r.err_msg = err; return r; }
 
