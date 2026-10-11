@@ -1,0 +1,56 @@
+use std.core
+use std.math
+use std.array
+use std.stats
+use std.random
+use std.bits
+use std.hash
+let xs = [2.0, 4.0, 4.0, 4.0, 5.0, 5.0, 7.0, 9.0]
+let m = mean(xs) or 0.0
+assert_eq_float(m, 5.0, 0.0001, "mean")
+let sd = std_dev(xs) or 0.0
+assert_eq_float(sd, 2.0, 0.0001, "stddev")
+let md = median(xs) or 0.0
+assert_eq_float(md, 4.5, 0.0001, "median")
+let p = percentile(xs, 50.0) or 0.0
+assert_eq_float(p, 4.5, 0.0001, "p50")
+let mo = mode_int([1, 2, 2, 3, 3, 3]) or 0
+assert_eq_int(mo, 3, "mode")
+let em: [float] = []
+let bad = mean(em) or -1.0
+assert_eq_float(bad, -1.0, 0.0001, "mean empty fails")
+rand_seed(7)
+let r1 = rand_int(1, 100)
+rand_seed(7)
+let r2 = rand_int(1, 100)
+assert_eq_int(r1, r2, "seed repeatable")
+mut ok = true
+mut i = 0
+while i < 200
+    let v = rand_int(5, 8)
+    if v < 5 ok = false end
+    if v > 8 ok = false end
+    let f = rand_float()
+    if f < 0.0 ok = false end
+    if f >= 1.0 ok = false end
+    i = i + 1
+end
+assert_true(ok, "rand ranges")
+let orig = [1, 2, 3, 4, 5]
+let sh: [int] = shuffle_int(orig)
+assert_eq_int(sum_array(sh), 15, "shuffle keeps elements")
+assert_eq_int(orig[0], 1, "shuffle copy")
+assert_eq_int(rand_alnum(12).len(), 12, "rand_alnum len")
+assert_eq_int(bit_and(12, 10), 8, "and")
+assert_eq_int(bit_or(12, 10), 14, "or")
+assert_eq_int(bit_xor(12, 10), 6, "xor")
+assert_eq_int(shift_left(1, 10), 1024, "shl")
+assert_eq_int(shift_right(1024, 3), 128, "shr")
+assert_eq_int(popcount(255), 8, "popcount")
+assert_true(bit_get(5, 2), "bit_get")
+assert_eq_int(bit_set(0, 3), 8, "bit_set")
+assert_eq_int(bit_clear(15, 0), 14, "bit_clear")
+assert_true(is_pow2(64), "pow2")
+assert_eq_int(hash_crc32("123456789"), 3421780262, "crc32 check value")
+assert_true(hash_fnv1a("a") != hash_fnv1a("b"), "fnv differs")
+print("STATS RANDOM BITS HASH TESTS PASSED")
