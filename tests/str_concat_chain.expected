@@ -1,0 +1,7 @@
+********************mid-section-long-text-here********************
+FAILED: a really long message that does not fit in small strings (expected 5)
+alpha-long-string-number-one-here|beta-long-string-number-two-here|
+alpha-long-string-number-one-here
+beta-long-string-number-two-here
+alpha-long-string-number-one-herebeta-long-string-number-two-herealpha-long-string-number-one-here
+beta-long-string-number-two-here

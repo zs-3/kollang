@@ -1,0 +1,12 @@
+let a = "apple"
+let b = "banana"
+print(a < b)
+print(a > b)
+print(a <= "apple")
+print(b >= a)
+print("abc" < "abcd")
+print("" < "a")
+fn lt(x: str, y: str) -> bool
+    return x < y
+end
+print(lt("b", "a"))

@@ -1,0 +1,23 @@
+fn rep(s: str, n: int) -> str
+    return s.repeat(n)
+end
+fn msgs(msg: str, e: int) -> str
+    return "FAILED: " + msg + " (expected {e})"
+end
+let words = ["alpha-long-string-number-one-here", "beta-long-string-number-two-here"]
+let a = rep("*", 20) + "mid-section-long-text-here" + rep("*", 20)
+print(a)
+print(msgs("a really long message that does not fit in small strings", 5))
+mut out = ""
+mut i = 0
+while i < 2
+    out = out + words[i]
+    out = out + "|"
+    i = i + 1
+end
+print(out)
+print(words[0])
+print(words[1])
+let c = words[0] + words[1] + words[0]
+print(c)
+print(words[1])

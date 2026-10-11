@@ -1,0 +1,24 @@
+let a = [1, 2, 3]
+mut b = a
+b[0] = 99
+print(a[0])
+print(b[0])
+fn bump(x: [int]) -> [int]
+    mut y = x
+    y[0] = 5
+    return y
+end
+let orig = [1, 2, 3]
+let changed: [int] = bump(orig)
+print(orig[0])
+print(changed[0])
+mut prev: [int] = [1, 2]
+mut i = 0
+while i < 2
+    mut cur: [int] = []
+    cur.push(i)
+    cur.push(i + 10)
+    prev = cur
+    i = i + 1
+end
+print(prev[1])

@@ -1,0 +1,10 @@
+let cr = "a\r\nb"
+print(cr.len())
+let bs = "back\\slash"
+print(bs)
+let t = "tab\there"
+print(t.len())
+let q = "what?? ok"
+print(q)
+let n = 5
+print("val=\"{n}\" 100%\\")
