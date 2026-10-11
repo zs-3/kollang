@@ -1,0 +1,127 @@
+-- std/time.kol : clocks, sleeping and UTC calendar helpers
+
+extern fn kol_time_unix() -> int from "kol_runtime"
+extern fn kol_time_ms() -> int from "kol_runtime"
+extern fn kol_time_ns() -> int from "kol_runtime"
+extern fn kol_sleep_ms(ms: int) from "kol_runtime"
+extern fn kol_time_field(ts: int, field: int) -> int from "kol_runtime"
+
+-- seconds since 1970-01-01 UTC
+fn now_unix() -> int
+    return kol_time_unix()
+end
+
+-- monotonic milliseconds (for measuring durations, not wall-clock time)
+fn now_ms() -> int
+    return kol_time_ms()
+end
+
+fn now_ns() -> int
+    return kol_time_ns()
+end
+
+fn sleep_ms(ms: int)
+    kol_sleep_ms(ms)
+end
+
+fn sleep_secs(secs: int)
+    kol_sleep_ms(secs * 1000)
+end
+
+-- elapsed milliseconds since a now_ms() reading
+fn elapsed_ms(start_ms: int) -> int
+    return kol_time_ms() - start_ms
+end
+
+fn year_of(ts: int) -> int
+    return kol_time_field(ts, 0)
+end
+
+fn month_of(ts: int) -> int
+    return kol_time_field(ts, 1)
+end
+
+fn day_of(ts: int) -> int
+    return kol_time_field(ts, 2)
+end
+
+fn hour_of(ts: int) -> int
+    return kol_time_field(ts, 3)
+end
+
+fn minute_of(ts: int) -> int
+    return kol_time_field(ts, 4)
+end
+
+fn second_of(ts: int) -> int
+    return kol_time_field(ts, 5)
+end
+
+-- 0 = Sunday ... 6 = Saturday
+fn weekday_of(ts: int) -> int
+    return kol_time_field(ts, 6)
+end
+
+fn day_of_year(ts: int) -> int
+    return kol_time_field(ts, 7)
+end
+
+fn is_leap_year(year: int) -> bool
+    if year mod 400 == 0 return true end
+    if year mod 100 == 0 return false end
+    return year mod 4 == 0
+end
+
+fn days_in_month(year: int, month: int) -> int
+    if month == 2
+        if is_leap_year(year) return 29 end
+        return 28
+    end
+    if month == 4 return 30 end
+    if month == 6 return 30 end
+    if month == 9 return 30 end
+    if month == 11 return 30 end
+    return 31
+end
+
+fn weekday_name(day: int) -> str
+    let names = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+    if day < 0 return "" end
+    if day > 6 return "" end
+    return names[day]
+end
+
+fn month_name(month: int) -> str
+    let names = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
+    if month < 1 return "" end
+    if month > 12 return "" end
+    return names[month - 1]
+end
+
+fn two_digits(n: int) -> str
+    if n < 10 return "0{n}" end
+    return "{n}"
+end
+
+-- "2024-03-09" for a unix timestamp (UTC)
+fn format_date(ts: int) -> str
+    let y = kol_time_field(ts, 0)
+    let mo: str = two_digits(kol_time_field(ts, 1))
+    let d: str = two_digits(kol_time_field(ts, 2))
+    return "{y}-{mo}-{d}"
+end
+
+-- "13:05:09" for a unix timestamp (UTC)
+fn format_time(ts: int) -> str
+    let h: str = two_digits(kol_time_field(ts, 3))
+    let mi: str = two_digits(kol_time_field(ts, 4))
+    let s: str = two_digits(kol_time_field(ts, 5))
+    return "{h}:{mi}:{s}"
+end
+
+-- ISO-8601 UTC, e.g. "2024-03-09T13:05:09Z"
+fn format_iso(ts: int) -> str
+    let date: str = format_date(ts)
+    let clock: str = format_time(ts)
+    return "{date}T{clock}Z"
+end

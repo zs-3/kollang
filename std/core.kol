@@ -39,3 +39,89 @@ fn clamp_int(x: int, lo: int, hi: int) -> int
     if x > hi return hi end
     return x
 end
+
+-- ---------------------------------------------------------------------------
+-- more assertions (print a message on failure, same style as assert_true)
+-- ---------------------------------------------------------------------------
+fn assert_false(cond: bool, msg: str)
+    if cond
+        print("ASSERTION FAILED: " + msg)
+    end
+end
+
+fn assert_eq_int(actual: int, expected: int, msg: str)
+    if actual != expected
+        print("ASSERTION FAILED: {msg} (expected {expected}, got {actual})")
+    end
+end
+
+fn assert_eq_str(actual: str, expected: str, msg: str)
+    if actual != expected
+        print("ASSERTION FAILED: {msg} (expected '{expected}', got '{actual}')")
+    end
+end
+
+fn assert_eq_float(actual: float, expected: float, eps: float, msg: str)
+    mut diff = actual - expected
+    if diff < 0.0
+        diff = diff * -1.0
+    end
+    if diff > eps
+        print("ASSERTION FAILED: {msg} (expected {expected}, got {actual})")
+    end
+end
+
+fn assert_eq_bool(actual: bool, expected: bool, msg: str)
+    if actual != expected
+        print("ASSERTION FAILED: {msg} (expected {expected}, got {actual})")
+    end
+end
+
+-- ---------------------------------------------------------------------------
+-- small integer helpers
+-- ---------------------------------------------------------------------------
+fn in_range(x: int, lo: int, hi: int) -> bool
+    return x >= lo and x <= hi
+end
+
+fn is_zero(x: int) -> bool
+    return x == 0
+end
+
+fn is_positive(x: int) -> bool
+    return x > 0
+end
+
+fn is_negative(x: int) -> bool
+    return x < 0
+end
+
+fn min3(a: int, b: int, c: int) -> int
+    return min_int(a, min_int(b, c))
+end
+
+fn max3(a: int, b: int, c: int) -> int
+    return max_int(a, max_int(b, c))
+end
+
+fn clamp_float_value(x: float, lo: float, hi: float) -> float
+    if x < lo return lo end
+    if x > hi return hi end
+    return x
+end
+
+fn div_floor(a: int, b: int) -> int
+    let q = a / b
+    if (a mod b != 0) and ((a < 0) != (b < 0))
+        return q - 1
+    end
+    return q
+end
+
+fn mod_floor(a: int, b: int) -> int
+    let r = a mod b
+    if r != 0 and ((r < 0) != (b < 0))
+        return r + b
+    end
+    return r
+end

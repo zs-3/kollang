@@ -1,0 +1,94 @@
+-- std/random.kol : seedable pseudo random numbers (xorshift64*)
+
+use std.str
+
+extern fn kol_rand_seed(seed: int) from "kol_runtime"
+extern fn kol_rand_next() -> int from "kol_runtime"
+extern fn kol_time_ns() -> int from "kol_runtime"
+
+fn rand_seed(seed: int)
+    kol_rand_seed(seed)
+end
+
+-- seed from the clock; call once at program start for non-repeatable runs
+fn rand_seed_time()
+    kol_rand_seed(kol_time_ns())
+end
+
+fn rand_next() -> int
+    return kol_rand_next()
+end
+
+-- uniform integer in [0, n)
+fn rand_below(n: int) -> int
+    if n <= 1 return 0 end
+    return kol_rand_next() mod n
+end
+
+-- uniform integer in [lo, hi] (inclusive)
+fn rand_int(lo: int, hi: int) -> int
+    if hi <= lo return lo end
+    return lo + kol_rand_next() mod (hi - lo + 1)
+end
+
+-- uniform float in [0.0, 1.0)
+fn rand_float() -> float
+    let r = kol_rand_next() mod 9007199254740992
+    return r * 1.0 / 9007199254740992.0
+end
+
+fn rand_float_range(lo: float, hi: float) -> float
+    return lo + rand_float() * (hi - lo)
+end
+
+fn rand_bool() -> bool
+    return kol_rand_next() mod 2 == 1
+end
+
+fn rand_choice_int(xs: [int]) -> int!
+    if xs.len() == 0
+        fail "rand_choice_int on empty array"
+    end
+    return xs[rand_below(xs.len())]
+end
+
+fn rand_choice_str(xs: [str]) -> str!
+    if xs.len() == 0
+        fail "rand_choice_str on empty array"
+    end
+    return xs[rand_below(xs.len())]
+end
+
+-- Fisher-Yates shuffle; returns a new array and leaves the input untouched
+fn shuffle_int(xs: [int]) -> [int]
+    mut out: [int] = []
+    for x in xs
+        out.push(x)
+    end
+    mut i = out.len() - 1
+    while i > 0
+        let j = rand_below(i + 1)
+        let tmp = out[i]
+        out[i] = out[j]
+        out[j] = tmp
+        i = i - 1
+    end
+    return out
+end
+
+fn rand_string(length: int, alphabet: str) -> str
+    mut out = ""
+    let n = alphabet.len()
+    if n == 0 return out end
+    mut i = 0
+    while i < length
+        let k = rand_below(n)
+        out = out + alphabet.slice(k, k + 1)
+        i = i + 1
+    end
+    return out
+end
+
+fn rand_alnum(length: int) -> str
+    return rand_string(length, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
+end

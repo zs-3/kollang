@@ -1,3 +1,5 @@
+
+use std.str
 -- std/array.kol
 
 fn array_len(nums: [int]) -> int
@@ -66,20 +68,387 @@ fn array_index_of(nums: [int], val: int) -> int
     return -1
 end
 
+-- NOTE: Kol arrays alias on assignment (`mut b = a` shares storage), so every
+-- function below that returns a modified array builds a fresh one.
+
+fn array_copy(nums: [int]) -> [int]
+    mut out: [int] = []
+    for n in nums
+        out.push(n)
+    end
+    return out
+end
+
 fn sort_int_array(nums: [int]) -> [int]
-    mut arr = nums
+    mut arr: [int] = array_copy(nums)
     let len = arr.len()
-    mut i = 0
-    while i < len
-        mut j = i + 1
-        while j < len
-            if arr[i] > arr[j]
-                let tmp = arr[i]
-                arr[i] = arr[j]
-                arr[j] = tmp
+    mut gap = len / 2
+    while gap > 0
+        mut i = gap
+        while i < len
+            let tmp = arr[i]
+            mut j = i
+            while j >= gap and arr[j - gap] > tmp
+                arr[j] = arr[j - gap]
+                j = j - gap
             end
-            j = j + 1
+            arr[j] = tmp
+            i = i + 1
         end
+        gap = gap / 2
+    end
+    return arr
+end
+
+fn sort_int_array_desc(nums: [int]) -> [int]
+    let asc: [int] = sort_int_array(nums)
+    return array_reverse_copy(asc)
+end
+
+fn array_reverse_copy(nums: [int]) -> [int]
+    mut out: [int] = []
+    mut i = nums.len() - 1
+    while i >= 0
+        out.push(nums[i])
+        i = i - 1
+    end
+    return out
+end
+
+fn array_slice(nums: [int], start: int, end_idx: int) -> [int]
+    mut out: [int] = []
+    mut i = start
+    if i < 0
+        i = 0
+    end
+    mut stop = end_idx
+    if stop > nums.len()
+        stop = nums.len()
+    end
+    while i < stop
+        out.push(nums[i])
+        i = i + 1
+    end
+    return out
+end
+
+fn array_take(nums: [int], n: int) -> [int]
+    return array_slice(nums, 0, n)
+end
+
+fn array_drop(nums: [int], n: int) -> [int]
+    return array_slice(nums, n, nums.len())
+end
+
+fn array_concat(a: [int], b: [int]) -> [int]
+    mut out: [int] = array_copy(a)
+    for n in b
+        out.push(n)
+    end
+    return out
+end
+
+fn array_fill(n: int, value: int) -> [int]
+    mut out: [int] = []
+    mut i = 0
+    while i < n
+        out.push(value)
+        i = i + 1
+    end
+    return out
+end
+
+fn array_range(start: int, end_idx: int) -> [int]
+    mut out: [int] = []
+    mut i = start
+    while i < end_idx
+        out.push(i)
+        i = i + 1
+    end
+    return out
+end
+
+fn array_range_step(start: int, end_idx: int, stride: int) -> [int]
+    mut out: [int] = []
+    if stride == 0 return out end
+    mut i = start
+    if stride > 0
+        while i < end_idx
+            out.push(i)
+            i = i + stride
+        end
+    else
+        while i > end_idx
+            out.push(i)
+            i = i + stride
+        end
+    end
+    return out
+end
+
+fn array_count(nums: [int], val: int) -> int
+    mut c = 0
+    for n in nums
+        if n == val
+            c = c + 1
+        end
+    end
+    return c
+end
+
+fn array_unique(nums: [int]) -> [int]
+    mut out: [int] = []
+    for n in nums
+        if not out.contains(n)
+            out.push(n)
+        end
+    end
+    return out
+end
+
+fn array_is_sorted(nums: [int]) -> bool
+    mut i = 1
+    while i < nums.len()
+        if nums[i - 1] > nums[i] return false end
+        i = i + 1
+    end
+    return true
+end
+
+fn array_binary_search(sorted_nums: [int], target: int) -> int
+    mut lo = 0
+    mut hi = sorted_nums.len() - 1
+    while lo <= hi
+        let mid = lo + (hi - lo) / 2
+        let v = sorted_nums[mid]
+        if v == target return mid end
+        if v < target
+            lo = mid + 1
+        else
+            hi = mid - 1
+        end
+    end
+    return -1
+end
+
+fn array_remove_at(nums: [int], idx: int) -> [int]
+    mut out: [int] = []
+    mut i = 0
+    while i < nums.len()
+        if i != idx
+            out.push(nums[i])
+        end
+        i = i + 1
+    end
+    return out
+end
+
+fn array_insert_at(nums: [int], idx: int, value: int) -> [int]
+    mut out: [int] = []
+    mut i = 0
+    mut placed = false
+    while i < nums.len()
+        if i == idx
+            out.push(value)
+            placed = true
+        end
+        out.push(nums[i])
+        i = i + 1
+    end
+    if not placed
+        out.push(value)
+    end
+    return out
+end
+
+fn array_first(nums: [int]) -> int!
+    if nums.len() == 0
+        fail "empty array"
+    end
+    return nums[0]
+end
+
+fn array_last(nums: [int]) -> int!
+    if nums.len() == 0
+        fail "empty array"
+    end
+    return nums[nums.len() - 1]
+end
+
+fn array_equals(a: [int], b: [int]) -> bool
+    if a.len() != b.len() return false end
+    mut i = 0
+    while i < a.len()
+        if a[i] != b[i] return false end
+        i = i + 1
+    end
+    return true
+end
+
+fn array_swap(nums: [int], i: int, j: int) -> [int]
+    mut out: [int] = array_copy(nums)
+    let tmp = out[i]
+    out[i] = out[j]
+    out[j] = tmp
+    return out
+end
+
+-- ---------------------------------------------------------------------------
+-- [float] arrays
+-- ---------------------------------------------------------------------------
+fn float_array_copy(xs: [float]) -> [float]
+    mut out: [float] = []
+    for x in xs
+        out.push(x)
+    end
+    return out
+end
+
+fn float_array_sum(xs: [float]) -> float
+    mut total = 0.0
+    for x in xs
+        total = total + x
+    end
+    return total
+end
+
+fn float_array_min(xs: [float]) -> float!
+    if xs.len() == 0
+        fail "empty array"
+    end
+    mut best = xs[0]
+    for x in xs
+        if x < best
+            best = x
+        end
+    end
+    return best
+end
+
+fn float_array_max(xs: [float]) -> float!
+    if xs.len() == 0
+        fail "empty array"
+    end
+    mut best = xs[0]
+    for x in xs
+        if x > best
+            best = x
+        end
+    end
+    return best
+end
+
+fn sort_float_array(xs: [float]) -> [float]
+    mut arr: [float] = float_array_copy(xs)
+    let len = arr.len()
+    mut gap = len / 2
+    while gap > 0
+        mut i = gap
+        while i < len
+            let tmp = arr[i]
+            mut j = i
+            while j >= gap and arr[j - gap] > tmp
+                arr[j] = arr[j - gap]
+                j = j - gap
+            end
+            arr[j] = tmp
+            i = i + 1
+        end
+        gap = gap / 2
+    end
+    return arr
+end
+
+-- ---------------------------------------------------------------------------
+-- [str] arrays
+-- ---------------------------------------------------------------------------
+fn str_array_empty() -> [str]
+    mut out: [str] = ["x"]
+    out.pop()
+    return out
+end
+
+fn str_array_copy(xs: [str]) -> [str]
+    mut out: [str] = str_array_empty()
+    for x in xs
+        out.push(x)
+    end
+    return out
+end
+
+fn str_array_contains(xs: [str], val: str) -> bool
+    for x in xs
+        if x == val return true end
+    end
+    return false
+end
+
+fn str_array_index_of(xs: [str], val: str) -> int
+    mut i = 0
+    while i < xs.len()
+        if xs[i] == val return i end
+        i = i + 1
+    end
+    return -1
+end
+
+fn str_array_reverse_copy(xs: [str]) -> [str]
+    mut out: [str] = str_array_empty()
+    mut i = xs.len() - 1
+    while i >= 0
+        out.push(xs[i])
+        i = i - 1
+    end
+    return out
+end
+
+fn str_array_concat(a: [str], b: [str]) -> [str]
+    mut out: [str] = str_array_copy(a)
+    for x in b
+        out.push(x)
+    end
+    return out
+end
+
+fn str_array_unique(xs: [str]) -> [str]
+    mut out: [str] = str_array_empty()
+    for x in xs
+        if not str_array_contains(out, x)
+            out.push(x)
+        end
+    end
+    return out
+end
+
+fn str_array_slice(xs: [str], start: int, end_idx: int) -> [str]
+    mut out: [str] = str_array_empty()
+    mut i = start
+    if i < 0
+        i = 0
+    end
+    mut stop = end_idx
+    if stop > xs.len()
+        stop = xs.len()
+    end
+    while i < stop
+        out.push(xs[i])
+        i = i + 1
+    end
+    return out
+end
+
+fn sort_str_array(xs: [str]) -> [str]
+    mut arr: [str] = str_array_copy(xs)
+    let len = arr.len()
+    mut i = 1
+    while i < len
+        let tmp: str = arr[i]
+        mut j = i
+        while j > 0 and str_compare(arr[j - 1], tmp) > 0
+            arr[j] = arr[j - 1]
+            j = j - 1
+        end
+        arr[j] = tmp
         i = i + 1
     end
     return arr
