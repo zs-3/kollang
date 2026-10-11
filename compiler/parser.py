@@ -37,7 +37,13 @@ class Parser:
             self.pos += 1
         return token
 
+    # Contextual keywords: keywords only in their own syntax (`extern ... from "x"`,
+    # `for ... step n`); anywhere a plain name is expected they are ordinary names.
+    SOFT_KEYWORDS = (TokenType.FROM, TokenType.STEP)
+
     def _expect(self, type_: TokenType, msg: str) -> Token:
+        if type_ == TokenType.IDENT and self._curr().type in self.SOFT_KEYWORDS:
+            return self._advance()
         if self._check(type_):
             return self._advance()
         raise KolError(f"Expected {type_.name} ({msg}), got {self._curr().type.name} ('{self._curr().value}')", self._curr().location)
@@ -100,9 +106,6 @@ class Parser:
 
         if self._check(TokenType.MATCH):
             return self._parse_match_stmt()
-
-        if self._check(TokenType.SELECT):
-            return self._parse_select_stmt()
 
         if self._check(TokenType.FOR):
             return self._parse_for_stmt()
@@ -592,81 +595,6 @@ class Parser:
         self._expect(TokenType.END, "end for match statement")
         return MatchStmt(expr=target, arms=arms, location=loc)
 
-    def _parse_select_stmt(self) -> SelectStmt:
-        """
-        select
-            case v = jobs.receive()        # or: case v, ok = jobs.receive()
-                ...
-            case results.send(x)
-                ...
-            case timeout(250)              # milliseconds
-                ...
-            else                           # runs immediately when nothing is ready
-                ...
-        end
-        """
-        loc = self._curr().location
-        self._expect(TokenType.SELECT, "select")
-        self._skip_newlines()
-
-        arms: List[SelectArm] = []
-        while not self._check(TokenType.END, TokenType.EOF):
-            a_loc = self._curr().location
-            if self._match(TokenType.ELSE):
-                arm = SelectArm(kind="default", location=a_loc)
-            else:
-                self._expect(TokenType.CASE, "'case' or 'else' in select")
-                arm = self._parse_select_case_head(a_loc)
-
-            self._skip_newlines()
-            while not self._check(TokenType.CASE, TokenType.ELSE, TokenType.END, TokenType.EOF):
-                stmt = self._parse_statement_or_decl()
-                if stmt:
-                    arm.body.append(stmt)
-                self._skip_newlines()
-            arms.append(arm)
-
-        self._expect(TokenType.END, "closing 'end' for select statement")
-        if not arms:
-            raise KolError("select needs at least one 'case'", loc)
-        if sum(1 for a in arms if a.kind == "default") > 1:
-            raise KolError("select can have only one 'else' branch", loc)
-        if sum(1 for a in arms if a.kind == "timeout") > 1:
-            raise KolError("select can have only one 'case timeout(...)'", loc)
-        if any(a.kind == "default" for a in arms) and any(a.kind == "timeout" for a in arms):
-            raise KolError("select cannot have both 'else' and 'case timeout(...)'", loc)
-        return SelectStmt(arms=arms, location=loc)
-
-    def _parse_select_case_head(self, a_loc) -> SelectArm:
-        # case timeout(ms)
-        if self._check(TokenType.IDENT) and self._curr().value == "timeout" and self._peek().type == TokenType.LPAREN:
-            self._advance()
-            self._expect(TokenType.LPAREN, "(")
-            ms = self._parse_expr()
-            self._expect(TokenType.RPAREN, ")")
-            return SelectArm(kind="timeout", value=ms, location=a_loc)
-
-        # case v = ch.receive()   /   case v, ok = ch.receive()
-        names: List[str] = []
-        if self._check(TokenType.IDENT) and self._peek().type in (TokenType.ASSIGN, TokenType.COMMA):
-            names.append(self._advance().value)
-            if self._match(TokenType.COMMA):
-                names.append(self._expect(TokenType.IDENT, "name after comma").value)
-            self._expect(TokenType.ASSIGN, "= in select case")
-
-        expr = self._parse_expr()
-        if not isinstance(expr, MethodCallExpr) or expr.method_name not in ("receive", "send"):
-            raise KolError("a select case must be 'ch.receive()', 'ch.send(value)' or 'timeout(ms)'", a_loc)
-        if expr.method_name == "receive":
-            if expr.args:
-                raise KolError("receive() takes no arguments", a_loc)
-            return SelectArm(kind="receive", names=names, channel=expr.object, location=a_loc)
-        if names:
-            raise KolError("a send case cannot bind a name", a_loc)
-        if len(expr.args) != 1:
-            raise KolError("send() takes exactly one argument", a_loc)
-        return SelectArm(kind="send", channel=expr.object, value=expr.args[0], location=a_loc)
-
     def _parse_for_stmt(self) -> ForStmt:
         loc = self._curr().location
         self._expect(TokenType.FOR, "for")
@@ -789,7 +717,7 @@ class Parser:
     def _parse_or_catch(self) -> ASTNode:
         expr = self._parse_and()
         while True:
-            if self._match(TokenType.OR):
+            if self._match(TokenType.OR, TokenType.PIPE_PIPE):
                 loc = self._curr().location
                 right = self._parse_and()
                 expr = OrExpr(expr=expr, default_val=right, location=loc)
@@ -846,17 +774,13 @@ class Parser:
 
     def _parse_unary(self) -> ASTNode:
         loc = self._curr().location
-        if self._check(TokenType.MINUS, TokenType.NOT, TokenType.BANG, TokenType.TRY, TokenType.AWAIT, TokenType.SPAWN):
+        if self._check(TokenType.MINUS, TokenType.NOT, TokenType.BANG, TokenType.TRY, TokenType.AWAIT):
             op_tok = self._advance()
             operand = self._parse_unary()
             if op_tok.type == TokenType.TRY:
                 return TryExpr(expr=operand, location=loc)
             elif op_tok.type == TokenType.AWAIT:
                 return AwaitExpr(task_expr=operand, location=loc)
-            elif op_tok.type == TokenType.SPAWN:
-                if not isinstance(operand, CallExpr):
-                    raise KolError("'spawn' must be followed by a task function call, e.g. 'spawn work(5)'", loc)
-                return SpawnExpr(call=operand, location=loc)
             return UnaryOp(op=op_tok.value, operand=operand, location=loc)
         return self._parse_pipe()
 
@@ -895,6 +819,9 @@ class Parser:
                         self._expect(TokenType.COMMA, ",")
                 self._expect(TokenType.RPAREN, ")")
                 expr = CallExpr(callee=expr, args=args, named_args=named_args, location=loc)
+
+            elif self._match(TokenType.QUESTION):
+                expr = TryExpr(expr=expr, location=loc)
 
             elif self._match(TokenType.DOT):
                 member = self._expect(TokenType.IDENT, "field or method name").value
@@ -980,13 +907,10 @@ class Parser:
             self._advance()
             self._expect(TokenType.LPAREN, "(")
             elem_t = self._parse_type_annotation()
-            capacity = None
-            if self._match(TokenType.COMMA):
-                capacity = self._parse_expr()
             self._expect(TokenType.RPAREN, ")")
-            return ChannelExpr(elem_type=elem_t, capacity=capacity, location=loc)
+            return ChannelExpr(elem_type=elem_t, location=loc)
 
-        if self._check(TokenType.IDENT):
+        if self._check(TokenType.IDENT) or self._curr().type in self.SOFT_KEYWORDS:
             name = self._advance().value
             return Ident(name=name, location=loc)
 
