@@ -1,0 +1,46 @@
+-- Split a CPU-heavy job across all cores and add the pieces up.
+
+task fn count_primes(lo: int, hi: int) -> int
+    mut count = 0
+    for n in lo..hi
+        if n >= 2
+            mut is_prime = true
+            mut d = 2
+            while d * d <= n
+                if n mod d == 0
+                    is_prime = false
+                    break
+                end
+                d = d + 1
+            end
+            if is_prime
+                count = count + 1
+            end
+        end
+    end
+    return count
+end
+
+fn main()
+    let limit = 2000000
+    let parts = cpu_count()
+    let chunk = limit / parts
+
+    let started = now_ms()
+    mut futures: [future(int)] = []
+    for p in 0..parts
+        let lo = p * chunk
+        mut hi = lo + chunk
+        if p == parts - 1
+            hi = limit
+        end
+        futures.push(spawn count_primes(lo, hi))
+    end
+    mut total = 0
+    for f in futures
+        total = total + await f
+    end
+    let elapsed = now_ms() - started
+    print("primes below {limit}: {total}")
+    print("{parts} tasks, {elapsed} ms")
+end

@@ -335,8 +335,8 @@ def cmd_fmt(args: List[str]):
     indent = 0
     INDENT_OPEN = {"fn","if","elif","else","for","while",
                    "loop","match","type","enum","interface",
-                   "task","test","arena","system","when"}
-    INDENT_CLOSE = {"end","elif","else"}
+                   "task","test","arena","system","when","select","case"}
+    INDENT_CLOSE = {"end","elif","else","case"}
     for line in lines:
         s = line.strip()
         if not s:

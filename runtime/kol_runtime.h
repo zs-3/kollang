@@ -16,8 +16,55 @@
  * ============================================================================ */
 
 static inline void kol_panic(const char* file, int line, const char* message) {
+    fflush(stdout);
     fprintf(stderr, "Kol Panic at %s:%d: %s\n", file, line, message);
     exit(1);
+}
+
+/* Panic without a source location (used by the runtime itself). */
+static inline void kol_rt_panic(const char* message) {
+    fflush(stdout);
+    fprintf(stderr, "Kol Panic: %s\n", message);
+    exit(1);
+}
+
+/* ============================================================================
+ * THREAD MODE + REFCOUNTED HANDLE OBJECTS
+ *
+ * kol_mt is set to 1 *before* the first worker thread is created. Until then the
+ * program is single-threaded and reference counts use plain (fast) operations;
+ * afterwards every refcount operation is atomic, so strings and handles can be
+ * shared safely between tasks.
+ * ============================================================================ */
+
+static int kol_mt = 0;
+
+static inline uint32_t kol_rc_inc(uint32_t* rc) {
+    if (kol_mt) return __atomic_add_fetch(rc, 1, __ATOMIC_RELAXED);
+    return ++(*rc);
+}
+static inline uint32_t kol_rc_dec(uint32_t* rc) {
+    if (kol_mt) return __atomic_sub_fetch(rc, 1, __ATOMIC_ACQ_REL);
+    return --(*rc);
+}
+static inline uint32_t kol_rc_get(uint32_t* rc) {
+    if (kol_mt) return __atomic_load_n(rc, __ATOMIC_ACQUIRE);
+    return *rc;
+}
+
+/* Every shared runtime object (channel, future, mutex, atomic) starts with this. */
+typedef struct KolObj {
+    uint32_t refs;
+    void (*destroy)(struct KolObj*);
+} KolObj;
+
+static inline void kol_obj_retain(void* p) {
+    if (p) kol_rc_inc(&((KolObj*)p)->refs);
+}
+static inline void kol_obj_release(void* p) {
+    if (!p) return;
+    KolObj* o = (KolObj*)p;
+    if (kol_rc_dec(&o->refs) == 0) o->destroy(o);
 }
 
 /* ============================================================================
@@ -185,14 +232,13 @@ static inline KolStr kol_str_slice(KolStr s, int64_t from, int64_t to) {
 
 static inline void kol_arc_retain_str(KolStr s) {
     if (s.is_heap && s.heap.ptr) {
-        s.heap.ptr->ref_count++;
+        kol_rc_inc(&s.heap.ptr->ref_count);
     }
 }
 
 static inline void kol_arc_release_str(KolStr s) {
     if (s.is_heap && s.heap.ptr) {
-        s.heap.ptr->ref_count--;
-        if (s.heap.ptr->ref_count == 0) {
+        if (kol_rc_dec(&s.heap.ptr->ref_count) == 0) {
             if (s.heap.ptr->data) free(s.heap.ptr->data);
             free(s.heap.ptr);
         }
@@ -215,7 +261,7 @@ static inline KolStr kol_str_concat(KolStr a, KolStr b) {
     size_t lb = kol_str_len(b);
     size_t total = la + lb;
 
-    if (a.is_heap && a.heap.ptr && a.heap.ptr->ref_count == 1 && total <= a.heap.ptr->capacity) {
+    if (a.is_heap && a.heap.ptr && kol_rc_get(&a.heap.ptr->ref_count) == 1 && total <= a.heap.ptr->capacity) {
         memcpy(a.heap.ptr->data + la, kol_str_cstr(&b), lb);
         a.heap.ptr->data[total] = '\0';
         a.heap.ptr->len = total;
@@ -239,6 +285,12 @@ static inline KolStr kol_str_concat(KolStr a, KolStr b) {
 }
 
 static inline void kol_str_append(KolStr* s, KolStr other) {
+    /* Copy-on-write: never mutate a heap buffer that another variable or task shares. */
+    if (s->is_heap && s->heap.ptr && kol_rc_get(&s->heap.ptr->ref_count) > 1) {
+        KolStr own = kol_str_create(kol_str_cstr(s));
+        kol_arc_release_str(*s);
+        *s = own;
+    }
     size_t la = kol_str_len(*s);
     size_t lb = kol_str_len(other);
     size_t total = la + lb;
@@ -520,6 +572,38 @@ static inline void kol_array_free_strs(kol_array_t* arr) {
     arr->capacity = 0;
 }
 
+/* Deep-ish copies used when a list crosses a task boundary (share-nothing). */
+static inline kol_array_t kol_array_clone(const kol_array_t* a) {
+    kol_array_t c = kol_array_create(a->elem_size, a->len);
+    if (a->len) memcpy(c.data, a->data, a->len * a->elem_size);
+    c.len = a->len;
+    return c;
+}
+
+static inline kol_array_t kol_array_clone_strs(const kol_array_t* a) {
+    kol_array_t c = kol_array_clone(a);
+    KolStr* strs = (KolStr*)c.data;
+    for (size_t i = 0; i < c.len; i++) kol_arc_retain_str(strs[i]);
+    return c;
+}
+
+/* Lists whose elements are refcounted handles (channels, futures, ...). */
+static inline void kol_array_free_objs(kol_array_t* arr) {
+    if (arr->data) {
+        void** objs = (void**)arr->data;
+        for (size_t i = 0; i < arr->len; i++) kol_obj_release(objs[i]);
+        free(arr->data);
+        arr->data = NULL;
+    }
+    arr->len = 0;
+    arr->capacity = 0;
+}
+
+static inline void kol_array_retain_objs(const kol_array_t* arr) {
+    void** objs = (void**)arr->data;
+    for (size_t i = 0; i < arr->len; i++) kol_obj_retain(objs[i]);
+}
+
 static inline void kol_array_pop(kol_array_t* a) {
     if (a->len > 0) {
         a->len--;
@@ -655,62 +739,14 @@ static inline int64_t kol_map_si_get(KolMap_si* m, KolStr key) {
 }
 
 /* ============================================================================
- * CHANNELS
+ * CONCURRENCY (tasks, futures, channels, select, mutex, atomics)
+ * Only compiled in when the program uses it (the compiler defines
+ * KOL_USE_CONCURRENCY), so single-threaded programs pay nothing.
  * ============================================================================ */
 
-typedef struct {
-    void* data;
-    size_t elem_size;
-    int has_value;
-    pthread_mutex_t mutex;
-    pthread_cond_t  can_send;
-    pthread_cond_t  can_recv;
-    int closed;
-} KolChannel;
-
-static inline KolChannel* kol_channel_create(size_t elem_size) {
-    KolChannel* ch = (KolChannel*)malloc(sizeof(KolChannel));
-    ch->data = malloc(elem_size);
-    ch->elem_size = elem_size;
-    ch->has_value = 0;
-    ch->closed = 0;
-    pthread_mutex_init(&ch->mutex, NULL);
-    pthread_cond_init(&ch->can_send, NULL);
-    pthread_cond_init(&ch->can_recv, NULL);
-    return ch;
-}
-
-static inline void kol_channel_send(KolChannel* ch, void* value) {
-    pthread_mutex_lock(&ch->mutex);
-    while (ch->has_value && !ch->closed)
-        pthread_cond_wait(&ch->can_send, &ch->mutex);
-    if (!ch->closed) {
-        memcpy(ch->data, value, ch->elem_size);
-        ch->has_value = 1;
-        pthread_cond_signal(&ch->can_recv);
-    }
-    pthread_mutex_unlock(&ch->mutex);
-}
-
-static inline void kol_channel_recv(KolChannel* ch, void* out) {
-    pthread_mutex_lock(&ch->mutex);
-    while (!ch->has_value && !ch->closed)
-        pthread_cond_wait(&ch->can_recv, &ch->mutex);
-    if (ch->has_value) {
-        memcpy(out, ch->data, ch->elem_size);
-        ch->has_value = 0;
-        pthread_cond_signal(&ch->can_send);
-    }
-    pthread_mutex_unlock(&ch->mutex);
-}
-
-static inline void kol_channel_close(KolChannel* ch) {
-    pthread_mutex_lock(&ch->mutex);
-    ch->closed = 1;
-    pthread_cond_broadcast(&ch->can_recv);
-    pthread_cond_broadcast(&ch->can_send);
-    pthread_mutex_unlock(&ch->mutex);
-}
+#ifdef KOL_USE_CONCURRENCY
+#include "kol_conc.h"
+#endif
 
 /* ============================================================================
  * SYSTEM MEMORY HELPERS

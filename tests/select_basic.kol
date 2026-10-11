@@ -1,0 +1,71 @@
+-- select waits on several channel operations; 'else' makes it non-blocking.
+task fn delayed_send(ch: channel(int), ms: int, v: int)
+    sleep(ms)
+    ch.send(v)
+end
+
+fn main()
+    let a = channel(int, 1)
+    let b = channel(int, 1)
+
+    -- nothing ready: else branch runs immediately
+    select
+        case v = a.receive()
+            print("unexpected")
+        else
+            print("nothing ready")
+    end
+
+    -- timeout fires when nothing arrives in time
+    select
+        case v = a.receive()
+            print("unexpected")
+        case timeout(30)
+            print("timed out")
+    end
+
+    -- a value arrives while select is waiting
+    let t = spawn delayed_send(b, 20, 42)
+    select
+        case v = a.receive()
+            print("from a")
+        case v = b.receive()
+            print("from b: {v}")
+        case timeout(2000)
+            print("too slow")
+    end
+    await t
+
+    -- send case: succeeds while there is room, falls to else when full
+    select
+        case a.send(1)
+            print("sent 1")
+        else
+            print("full")
+    end
+    select
+        case a.send(2)
+            print("sent 2")
+        else
+            print("full")
+    end
+
+    -- closed channel: receive fires with ok = false
+    b.close()
+    select
+        case v, ok = b.receive()
+            print("closed ok={ok} v={v}")
+    end
+
+    -- select inside a loop: break leaves the loop
+    mut got = 0
+    loop
+        select
+            case v = a.receive()
+                got = got + v
+            else
+                break
+        end
+    end
+    print(got)
+end

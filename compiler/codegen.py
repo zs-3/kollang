@@ -1,5 +1,6 @@
 from typing import List, Set, Dict, Optional, Tuple
 from compiler.ast_nodes import *
+from compiler.errors import KolError
 
 C_KEYWORDS = {
     "double", "float", "int", "char", "long", "short",
@@ -34,6 +35,9 @@ class Codegen:
         self.extern_fns: Dict[str, str] = {}
         self.extern_headers: Set[str] = set()
         self.task_param_names: Dict[str, List[str]] = {}
+        self.task_decls: Dict[str, FunctionDecl] = {}
+        self.task_wrappers: Set[str] = set()
+        self.uses_conc: bool = False
         self.in_system_block: bool = False
         self.current_type_name: Optional[str] = None
         self.defer_stack: List[List[ASTNode]] = []
@@ -50,34 +54,14 @@ class Codegen:
         for var_name, type_key in reversed(scope_vars):
             if skip_var and var_name == skip_var:
                 continue
-            safe_name = self._safe_c_name(var_name)
-            if type_key == "str":
-                self._emit(f"kol_arc_release_str({safe_name});")
-            elif type_key == "list_str":
-                self._emit(f"kol_array_free_strs(&{safe_name});")
-            elif type_key.startswith("list") or type_key == "kol_array_t":
-                self._emit(f"kol_array_free(&{safe_name});")
-            elif type_key in self.struct_fields:
-                str_fields = [f_name for f_name, f_type in self.struct_fields[type_key] if f_type == "KolStr"]
-                for sf in str_fields:
-                    self._emit(f"kol_arc_release_str({safe_name}.{sf});")
+            self._emit_cleanup_for(var_name, type_key)
 
     def _emit_all_active_scope_cleanups(self, skip_var: Optional[str] = None):
         for scope_vars in reversed(self.scope_stack):
             for var_name, type_key in reversed(scope_vars):
                 if skip_var and var_name == skip_var:
                     continue
-                safe_name = self._safe_c_name(var_name)
-                if type_key == "str":
-                    self._emit(f"kol_arc_release_str({safe_name});")
-                elif type_key == "list_str":
-                    self._emit(f"kol_array_free_strs(&{safe_name});")
-                elif type_key.startswith("list") or type_key == "kol_array_t":
-                    self._emit(f"kol_array_free(&{safe_name});")
-                elif type_key in self.struct_fields:
-                    str_fields = [f_name for f_name, f_type in self.struct_fields[type_key] if f_type == "KolStr"]
-                    for sf in str_fields:
-                        self._emit(f"kol_arc_release_str({safe_name}.{sf});")
+                self._emit_cleanup_for(var_name, type_key)
 
     def _emit_loop_scope_cleanups(self):
         if not self.loop_scope_depths:
@@ -85,17 +69,96 @@ class Codegen:
         loop_start_depth = self.loop_scope_depths[-1]
         for scope_vars in reversed(self.scope_stack[loop_start_depth:]):
             for var_name, type_key in reversed(scope_vars):
-                safe_name = self._safe_c_name(var_name)
-                if type_key == "str":
-                    self._emit(f"kol_arc_release_str({safe_name});")
-                elif type_key == "list_str":
-                    self._emit(f"kol_array_free_strs(&{safe_name});")
-                elif type_key.startswith("list") or type_key == "kol_array_t":
-                    self._emit(f"kol_array_free(&{safe_name});")
-                elif type_key in self.struct_fields:
-                    str_fields = [f_name for f_name, f_type in self.struct_fields[type_key] if f_type == "KolStr"]
-                    for sf in str_fields:
-                        self._emit(f"kol_arc_release_str({safe_name}.{sf});")
+                self._emit_cleanup_for(var_name, type_key)
+
+    # ------------------------------------------------------------------
+    # Type keys for the concurrency types
+    #   channel(T) -> "channel_<T>"   future(T) -> "future_<T>"
+    #   mutex      -> "mutex"          atomic    -> "atomic"
+    #   [T]        -> "list_<T>"
+    # ------------------------------------------------------------------
+    HANDLE_NAMES = ("channel", "future", "mutex", "atomic")
+
+    def _tkey(self, ta) -> str:
+        if ta is None:
+            return "int"
+        n = ta.name
+        if n in ("channel", "future"):
+            inner = self._tkey(ta.generic_args[0]) if ta.generic_args else "int"
+            return f"{n}_{inner}"
+        if n == "list":
+            return f"list_{self._tkey(ta.generic_args[0])}" if ta.generic_args else "list_int"
+        return n
+
+    def _is_handle_key(self, k: str) -> bool:
+        return k.startswith("channel_") or k.startswith("future_") or k in ("mutex", "atomic")
+
+    def _ctype_of_key(self, k: str) -> str:
+        if k == "int": return "int64_t"
+        if k == "float": return "double"
+        if k == "bool": return "bool"
+        if k == "str": return "KolStr"
+        if k == "ptr": return "void*"
+        if k.startswith("channel_") or k == "channel": return "KolChannel*"
+        if k.startswith("future_") or k == "future": return "KolFuture*"
+        if k == "mutex": return "KolMutex*"
+        if k == "atomic": return "KolAtomic*"
+        if k.startswith("list") or k == "kol_array_t": return "kol_array_t"
+        return k
+
+    def _emit_cleanup_for(self, var_name: str, type_key: str):
+        safe_name = self._safe_c_name(var_name)
+        if type_key == "str":
+            self._emit(f"kol_arc_release_str({safe_name});")
+        elif self._is_handle_key(type_key):
+            self._emit(f"kol_obj_release({safe_name});")
+        elif type_key.startswith("list_") and self._is_handle_key(type_key[5:]):
+            self._emit(f"kol_array_free_objs(&{safe_name});")
+        elif type_key == "list_str":
+            self._emit(f"kol_array_free_strs(&{safe_name});")
+        elif type_key.startswith("list") or type_key == "kol_array_t":
+            self._emit(f"kol_array_free(&{safe_name});")
+        elif type_key in self.struct_fields:
+            str_fields = [f_name for f_name, f_type in self.struct_fields[type_key] if f_type == "KolStr"]
+            for sf in str_fields:
+                self._emit(f"kol_arc_release_str({safe_name}.{sf});")
+
+    def _is_borrowed_expr(self, e: ASTNode) -> bool:
+        """True when evaluating e yields a value some variable still owns."""
+        return isinstance(e, (Ident, IndexExpr, FieldAccess))
+
+    def _proto_ret_ctype(self, decl: FunctionDecl) -> str:
+        rt = "void"
+        if decl.return_type:
+            n = decl.return_type.name
+            if decl.return_type.is_fallible:
+                rt = "KolResult"
+            elif decl.return_type.is_optional:
+                if n == "str": rt = "KolOptStr"
+                elif n == "float": rt = "KolOptFloat"
+                else: rt = "KolOptInt"
+            elif n in self.HANDLE_NAMES:
+                rt = self._ctype_of_key(self._tkey(decl.return_type))
+            elif n == "str": rt = "KolStr"
+            elif n == "float": rt = "double"
+            elif n == "bool": rt = "bool"
+            elif n == "int": rt = "int64_t"
+            elif n == "list": rt = "kol_array_t"
+            else: rt = n
+        return rt
+
+    def _proto_param_ctype(self, p) -> str:
+        pt = "int64_t"
+        if p.type_annot:
+            n = p.type_annot.name
+            if n in self.HANDLE_NAMES: pt = self._ctype_of_key(self._tkey(p.type_annot))
+            elif n == "str": pt = "KolStr"
+            elif n == "float": pt = "double"
+            elif n == "bool": pt = "bool"
+            elif n == "int": pt = "int64_t"
+            elif n == "list": pt = "kol_array_t"
+            else: pt = n
+        return pt
 
     def _emit(self, line: str):
         indent = "    " * self.indent_level
@@ -277,6 +340,7 @@ class Codegen:
                     self.func_ret_types[decl.name] = "void"
             elif isinstance(decl, FunctionDecl):
                 self.task_param_names[decl.name] = [p.name for p in decl.params]
+                self.task_decls[decl.name] = decl
                 if decl.generic_params:
                     self.generic_func_defs[decl.name] = decl
                 else:
@@ -286,6 +350,8 @@ class Codegen:
                             if rt_name == "str": self.func_ret_types[decl.name] = "KolOptStr"
                             elif rt_name == "float": self.func_ret_types[decl.name] = "KolOptFloat"
                             else: self.func_ret_types[decl.name] = "KolOptInt"
+                        elif rt_name in self.HANDLE_NAMES:
+                            self.func_ret_types[decl.name] = self._tkey(decl.return_type)
                         else:
                             self.func_ret_types[decl.name] = rt_name
                     else:
@@ -327,6 +393,8 @@ class Codegen:
         if release_mode:
             self.release_mode = True
         self.is_test_mode = is_test_mode
+        self.uses_conc = False
+        self.task_wrappers = set()
         self.code = []
         self.global_consts = []
         self.type_decls = []
@@ -348,39 +416,11 @@ class Codegen:
         # Forward declarations for functions and methods
         for decl in all_nodes:
             if isinstance(decl, FunctionDecl) and not decl.generic_params and decl.name != "main":
-                rt = "void"
-                if decl.return_type:
-                    if decl.return_type.is_fallible:
-                        rt = "KolResult"
-                    elif decl.return_type.is_optional:
-                        if decl.return_type.name == "str": rt = "KolOptStr"
-                        elif decl.return_type.name == "float": rt = "KolOptFloat"
-                        else: rt = "KolOptInt"
-                    elif decl.return_type.name == "str": rt = "KolStr"
-                    elif decl.return_type.name == "float": rt = "double"
-                    elif decl.return_type.name == "bool": rt = "bool"
-                    elif decl.return_type.name == "int": rt = "int64_t"
-                    elif decl.return_type.name == "list": rt = "kol_array_t"
-                    else: rt = decl.return_type.name
-
-                params_code = []
-                for p in decl.params:
-                    pt = "int64_t"
-                    if p.type_annot:
-                        if p.type_annot.name == "channel": pt = "KolChannel*"
-                        elif p.type_annot.name == "str": pt = "KolStr"
-                        elif p.type_annot.name == "float": pt = "double"
-                        elif p.type_annot.name == "bool": pt = "bool"
-                        elif p.type_annot.name == "int": pt = "int64_t"
-                        elif p.type_annot.name == "list": pt = "kol_array_t"
-                        else: pt = p.type_annot.name
-                    params_code.append(f"{pt} {p.name}")
+                rt = self._proto_ret_ctype(decl)
+                params_code = [f"{self._proto_param_ctype(p)} {p.name}" for p in decl.params]
                 p_str = ", ".join(params_code) if params_code else "void"
                 prefix = "static inline " if decl.is_pure else ""
                 self.proto_decls.append(f"{prefix}{rt} _kol_fn_{decl.name}({p_str});")
-                if decl.is_task:
-                    p_task_str = ", ".join(params_code)
-                    self.proto_decls.append(f"{rt} _kol_task_{decl.name}({p_task_str});")
 
             elif isinstance(decl, TypeDecl):
                 self._gen_proto_decls_for_type(decl)
@@ -426,7 +466,8 @@ class Codegen:
         extern_inc = "".join(f"#include <{h if h.endswith('.h') else h + '.h'}>\n" for h in sorted(self.extern_headers))
         if extern_inc:
             extern_inc += "\n"
-        header_inc = '#include "kol_runtime.h"\n' + extern_inc
+        conc_def = "#define KOL_USE_CONCURRENCY 1\n" if self.uses_conc else ""
+        header_inc = conc_def + '#include "kol_runtime.h"\n' + extern_inc
         const_section = "\n".join(self.global_consts) + "\n\n" if self.global_consts else ""
         type_section = "\n".join(self.type_decls) + "\n\n" if self.type_decls else ""
         proto_section = "\n".join(self.proto_decls) + "\n\n" if self.proto_decls else ""
@@ -456,6 +497,8 @@ class Codegen:
             if isinstance(decl, VarDecl) and decl.is_const:
                 self._gen_var_decl(decl, global_scope=True)
             elif isinstance(decl, FunctionDecl):
+                self.task_param_names[decl.name] = [p.name for p in decl.params]
+                self.task_decls[decl.name] = decl
                 if decl.generic_params:
                     self.generic_func_defs[decl.name] = decl
                 else:
@@ -465,6 +508,8 @@ class Codegen:
                             if rt_name == "str": self.func_ret_types[decl.name] = "KolOptStr"
                             elif rt_name == "float": self.func_ret_types[decl.name] = "KolOptFloat"
                             else: self.func_ret_types[decl.name] = "KolOptInt"
+                        elif rt_name in self.HANDLE_NAMES:
+                            self.func_ret_types[decl.name] = self._tkey(decl.return_type)
                         else:
                             self.func_ret_types[decl.name] = rt_name
                     else:
@@ -499,31 +544,8 @@ class Codegen:
         # Forward declarations
         for decl in all_nodes:
             if isinstance(decl, FunctionDecl) and not decl.generic_params and decl.name != "main":
-                rt = "void"
-                if decl.return_type:
-                    if decl.return_type.is_fallible: rt = "KolResult"
-                    elif decl.return_type.is_optional:
-                        if decl.return_type.name == "str": rt = "KolOptStr"
-                        elif decl.return_type.name == "float": rt = "KolOptFloat"
-                        else: rt = "KolOptInt"
-                    elif decl.return_type.name == "str": rt = "KolStr"
-                    elif decl.return_type.name == "float": rt = "double"
-                    elif decl.return_type.name == "bool": rt = "bool"
-                    elif decl.return_type.name == "int": rt = "int64_t"
-                    elif decl.return_type.name == "list": rt = "kol_array_t"
-                    else: rt = decl.return_type.name
-
-                params_code = []
-                for p in decl.params:
-                    pt = "int64_t"
-                    if p.type_annot:
-                        if p.type_annot.name == "str": pt = "KolStr"
-                        elif p.type_annot.name == "float": pt = "double"
-                        elif p.type_annot.name == "bool": pt = "bool"
-                        elif p.type_annot.name == "int": pt = "int64_t"
-                        elif p.type_annot.name == "list": pt = "kol_array_t"
-                        else: pt = p.type_annot.name
-                    params_code.append(f"{pt} {p.name}")
+                rt = self._proto_ret_ctype(decl)
+                params_code = [f"{self._proto_param_ctype(p)} {p.name}" for p in decl.params]
                 p_str = ", ".join(params_code) if params_code else "void"
                 prefix = "static inline " if decl.is_pure else ""
                 self.proto_decls.append(f"{prefix}{rt} _kol_fn_{decl.name}({p_str});")
@@ -568,7 +590,8 @@ class Codegen:
         self.indent_level -= 1
         self._emit('}')
 
-        header_inc = '#include <stdio.h>\n#include <stdbool.h>\n#include "kol_runtime.h"\n\nint _kol_test_failures = 0;\n\n'
+        conc_def = "#define KOL_USE_CONCURRENCY 1\n" if self.uses_conc else ""
+        header_inc = conc_def + '#include <stdio.h>\n#include <stdbool.h>\n#include "kol_runtime.h"\n\nint _kol_test_failures = 0;\n\n'
         const_section = "\n".join(self.global_consts) + "\n\n" if self.global_consts else ""
         type_section = "\n".join(self.type_decls) + "\n\n" if self.type_decls else ""
         proto_section = "\n".join(self.proto_decls) + "\n\n" if self.proto_decls else ""
@@ -753,6 +776,36 @@ class Codegen:
                 self.loop_scope_depths.pop()
                 self.indent_level -= 1
                 self._emit("}")
+            elif self._infer_expr_type(stmt.iterable).startswith("channel"):
+                self.uses_conc = True
+                ch_key = self._infer_expr_type(stmt.iterable)
+                elem_key = ch_key[8:] if len(ch_key) > 8 else "int"
+                elem_ct = self._ctype_of_key(elem_key)
+                ch_v = self._temp_var("forch")
+                self._emit(f"KolChannel* {ch_v} = {self._gen_expr(stmt.iterable)};")
+                counter = self._temp_var("n")
+                self._emit(f"int64_t {counter} = 0;")
+                tmp = self._temp_var("item")
+                self._emit("for (;;) {")
+                self.indent_level += 1
+                self._emit(f"{elem_ct} {tmp};")
+                self._emit(f"if (!kol_channel_recv({ch_v}, &{tmp})) break;")
+                self.loop_scope_depths.append(len(self.scope_stack))
+                self._push_scope()
+                if stmt.index_var:
+                    self.var_types[stmt.index_var] = "int"
+                    self._emit(f"int64_t {self._safe_c_name(stmt.index_var)} = {counter};")
+                self._emit(f"{counter}++;")
+                self.var_types[stmt.var_name] = elem_key
+                self._emit(f"{elem_ct} {self._safe_c_name(stmt.var_name)} = {tmp};")
+                if elem_key == "str":
+                    self.scope_stack[-1].append((stmt.var_name, "str"))
+                for s_ in stmt.body:
+                    self._gen_statement(s_, current_fn_fallible, current_fn_optional, opt_ret_kind)
+                self._pop_and_emit_cleanup()
+                self.loop_scope_depths.pop()
+                self.indent_level -= 1
+                self._emit("}")
             else:
                 arr_c = self._gen_expr(stmt.iterable)
                 elem_v = stmt.var_name
@@ -776,8 +829,8 @@ class Codegen:
                     elem_c_type = "bool"
                     elem_type_key = "bool"
                 elif list_type.startswith("list_"):
-                    elem_c_type = list_type[5:]
-                    elem_type_key = elem_c_type
+                    elem_type_key = list_type[5:]
+                    elem_c_type = self._ctype_of_key(elem_type_key)
                 else:
                     elem_c_type = "int64_t"
                     elem_type_key = "int"
@@ -805,6 +858,9 @@ class Codegen:
                 self.loop_scope_depths.pop()
                 self.indent_level -= 1
                 self._emit("}")
+
+        elif isinstance(stmt, SelectStmt):
+            self._gen_select(stmt, current_fn_fallible, current_fn_optional, opt_ret_kind)
 
         elif isinstance(stmt, WhileStmt):
             cond = self._gen_expr(stmt.condition)
@@ -841,7 +897,7 @@ class Codegen:
                 elif t_inf == "float": ret_type_c = "double"
                 elif t_inf == "bool": ret_type_c = "bool"
                 elif t_inf.startswith("list") or t_inf == "kol_array_t": ret_type_c = "kol_array_t"
-                elif t_inf.startswith("channel"): ret_type_c = "KolChannel*"
+                elif self._is_handle_key(t_inf): ret_type_c = self._ctype_of_key(t_inf)
                 elif t_inf == "ptr": ret_type_c = "void*"
                 elif t_inf in self.struct_fields or t_inf in self.enum_defs: ret_type_c = t_inf
 
@@ -913,41 +969,26 @@ class Codegen:
             if len(stmt.names) != len(tasks):
                 raise KolError(f"multi-variable let has {len(stmt.names)} variables but {len(tasks)} tasks in all(...)", stmt.location)
 
+            # Start every task on the pool, then collect the results in order.
             spawned = []
-            for i, task_node in enumerate(tasks):
+            for task_node in tasks:
                 call_node = task_node.task_expr if isinstance(task_node, AwaitExpr) else task_node
                 if not isinstance(call_node, CallExpr) or not isinstance(call_node.callee, Ident):
                     raise KolError("all(...) arguments must be task function calls", task_node.location)
-
                 fn_name = call_node.callee.name
-                ret_t = self.func_ret_types.get(fn_name, "int")
-                c_ret_t = "double" if ret_t == "float" else ("KolStr" if ret_t == "str" else ("bool" if ret_t == "bool" else "int64_t"))
+                ret_key = self.func_ret_types.get(fn_name, "void")
+                spawned.append((self._gen_spawn(SpawnExpr(call=call_node, location=task_node.location)), ret_key))
 
-                struct_name = f"_KolTaskArgs_{fn_name}"
-                trampoline_name = f"_kol_trampoline_{fn_name}"
-
-                args_v = self._temp_var("all_args")
-                thread_v = self._temp_var("all_thread")
-
-                self._emit(f"{struct_name}* {args_v} = ({struct_name}*)malloc(sizeof({struct_name}));")
-
-                p_names = self.task_param_names.get(fn_name, [])
-                for idx_arg, arg_expr in enumerate(call_node.args):
-                    arg_c = self._gen_expr(arg_expr)
-                    p_field = p_names[idx_arg] if idx_arg < len(p_names) else f"p{idx_arg}"
-                    self._emit(f"{args_v}->{p_field} = {arg_c};")
-
-                self._emit(f"pthread_t {thread_v};")
-                self._emit(f"pthread_create(&{thread_v}, NULL, {trampoline_name}, {args_v});")
-
-                spawned.append((thread_v, args_v, c_ret_t, ret_t, stmt.names[i]))
-
-            for thread_v, args_v, c_ret_t, ret_t, var_name in spawned:
-                self._emit(f"pthread_join({thread_v}, NULL);")
+            for (fut, ret_key), var_name in zip(spawned, stmt.names):
+                val = self._emit_future_value(fut, ret_key, True)
+                self.var_types[var_name] = ret_key
                 safe_var = self._safe_c_name(var_name)
-                self.var_types[var_name] = ret_t
-                self._emit(f"{c_ret_t} {safe_var} = {args_v}->_result;")
-                self._emit(f"free({args_v});")
+                if ret_key == "void":
+                    self._emit(f"int64_t {safe_var} = 0;")
+                else:
+                    self._emit(f"{self._ctype_of_key(ret_key)} {safe_var} = {val};")
+                    if self.scope_stack:
+                        self.scope_stack[-1].append((var_name, ret_key))
 
         elif isinstance(stmt, ExternDecl):
             pass
@@ -1040,21 +1081,16 @@ class Codegen:
             tname = decl.type_annot.name
             type_key = tname
             if tname == "ptr": type_str = "void*"
-            elif tname == "channel":
-                type_str = "KolChannel*"
-                elem_t = decl.type_annot.generic_args[0].name if decl.type_annot.generic_args else "int"
-                type_key = f"channel_{elem_t}"
+            elif tname in self.HANDLE_NAMES:
+                type_key = self._tkey(decl.type_annot)
+                type_str = self._ctype_of_key(type_key)
             elif tname == "int": type_str = "int64_t"
             elif tname == "float": type_str = "double"
             elif tname == "bool": type_str = "bool"
             elif tname == "str": type_str = "KolStr"
             elif tname == "list":
                 type_str = "kol_array_t"
-                if decl.type_annot.generic_args:
-                    elem_t = decl.type_annot.generic_args[0].name
-                    type_key = f"list_{elem_t}"
-                else:
-                    type_key = "list_int"
+                type_key = self._tkey(decl.type_annot)
             else: type_str = tname
         elif decl.value:
             t_inf = self._infer_expr_type(decl.value)
@@ -1069,8 +1105,8 @@ class Codegen:
                 type_str = "bool"
             elif t_inf == "ptr":
                 type_str = "void*"
-            elif t_inf.startswith("channel"):
-                type_str = "KolChannel*"
+            elif self._is_handle_key(t_inf):
+                type_str = self._ctype_of_key(t_inf)
             elif t_inf not in ("int", "void") and t_inf in self.struct_fields:
                 type_str = t_inf          # ← ADD THIS LINE    
 
@@ -1097,7 +1133,7 @@ class Codegen:
                 elif type_key == "ptr": type_str = "void*"
                 elif type_key == "int": type_str = "int64_t"
                 elif type_key == "list" or type_key.startswith("list"): type_str = "kol_array_t"
-                else: type_str = type_key
+                else: type_str = self._ctype_of_key(type_key)
             elif isinstance(decl.value, CallExpr) and isinstance(decl.value.callee, FieldAccess) and isinstance(decl.value.callee.target, Ident):
                 outer_n = decl.value.callee.target.name
                 inner_n = decl.value.callee.field_name
@@ -1137,8 +1173,7 @@ class Codegen:
                     else: type_str = type_key
             elif isinstance(decl.value, ChannelExpr):
                 type_str = "KolChannel*"
-                elem_n = decl.value.elem_type.name if decl.value.elem_type else "int"
-                type_key = f"channel_{elem_n}"
+                type_key = f"channel_{self._tkey(decl.value.elem_type)}"
             elif isinstance(decl.value, ListExpr):
                 type_str = "kol_array_t"
                 if decl.value.elements:
@@ -1174,6 +1209,11 @@ class Codegen:
                 self._emit(f"{type_str} {safe_decl_name} = {val_str};")
                 if type_key == "str" and isinstance(decl.value, Ident):
                     self._emit(f"kol_arc_retain_str({safe_decl_name});")
+                elif self._is_handle_key(type_key) and self._is_borrowed_expr(decl.value):
+                    self._emit(f"kol_obj_retain({safe_decl_name});")
+                elif type_key.startswith("list_") and self._is_handle_key(type_key[5:]) and isinstance(decl.value, Ident):
+                    self._emit(f"{safe_decl_name} = kol_array_clone(&{safe_decl_name});")
+                    self._emit(f"kol_array_retain_objs(&{safe_decl_name});")
         else:
             self._emit(f"{type_str} {safe_decl_name};")
 
@@ -1194,6 +1234,7 @@ class Codegen:
                 if rt == "str": ret_type = "KolOptStr"
                 elif rt == "float": ret_type = "KolOptFloat"
                 else: ret_type = "KolOptInt"
+            elif rt in self.HANDLE_NAMES: ret_type = self._ctype_of_key(self._tkey(decl.return_type))
             elif rt == "int": ret_type = "int64_t"
             elif rt == "float": ret_type = "double"
             elif rt == "bool": ret_type = "bool"
@@ -1210,21 +1251,16 @@ class Codegen:
             if p.type_annot:
                 pn = p.type_annot.name
                 pk = pn
-                if pn == "channel":
-                    pt = "KolChannel*"
-                    elem_t = p.type_annot.generic_args[0].name if p.type_annot.generic_args else "int"
-                    pk = f"channel_{elem_t}"
+                if pn in self.HANDLE_NAMES:
+                    pk = self._tkey(p.type_annot)
+                    pt = self._ctype_of_key(pk)
                 elif pn == "int": pt = "int64_t"
                 elif pn == "float": pt = "double"
                 elif pn == "bool": pt = "bool"
                 elif pn == "str": pt = "KolStr"
                 elif pn == "list":
                     pt = "kol_array_t"
-                    if p.type_annot.generic_args:
-                        elem_t = p.type_annot.generic_args[0].name
-                        pk = f"list_{elem_t}"
-                    else:
-                        pk = "list_int"
+                    pk = self._tkey(p.type_annot)
                 elif pn in self.struct_fields or pn in self.enum_defs: pt = pn
             self.var_types[p.name] = pk
             p_safe = self._safe_c_name(p.name)
@@ -1276,56 +1312,6 @@ class Codegen:
         self._emit("}")
         self._emit("")
 
-        if decl.is_task and not is_main:
-            struct_name = f"_KolTaskArgs_{decl.name}"
-            field_decls = []
-            param_names = []
-            param_types = []
-            for p in decl.params:
-                pt = "int64_t"
-                if p.type_annot:
-                    pn = p.type_annot.name
-                    if pn == "channel": pt = "KolChannel*"
-                    elif pn == "int": pt = "int64_t"
-                    elif pn == "float": pt = "double"
-                    elif pn == "bool": pt = "bool"
-                    elif pn == "str": pt = "KolStr"
-                    elif pn in self.struct_fields or pn in self.enum_defs: pt = pn
-                field_decls.append(f"    {pt} {p.name};")
-                param_names.append(p.name)
-                param_types.append(pt)
-            field_decls.append(f"    {ret_type} _result;")
-            args_struct_def = f"typedef struct {{\n" + "\n".join(field_decls) + f"\n}} {struct_name};"
-            self.type_decls.append(args_struct_def)
-
-            trampoline_name = f"_kol_trampoline_{decl.name}"
-            call_args_str = ", ".join([f"args->{pn}" for pn in param_names])
-            trampoline_code = (
-                f"static void* {trampoline_name}(void* raw_args) {{\n"
-                f"    {struct_name}* args = ({struct_name}*)raw_args;\n"
-                f"    args->_result = _kol_fn_{decl.name}({call_args_str});\n"
-                f"    return NULL;\n"
-                f"}}"
-            )
-            self.helper_funcs.append(trampoline_code)
-
-            task_fn_name = f"_kol_task_{decl.name}"
-            params_with_types = [f"{pt} {pn}" for pt, pn in zip(param_types, param_names)]
-            task_param_str = ", ".join(params_with_types)
-            self._emit(f"{ret_type} {task_fn_name}({task_param_str}) {{")
-            self.indent_level += 1
-            self._emit(f"{struct_name}* args = ({struct_name}*)malloc(sizeof({struct_name}));")
-            for pn in param_names:
-                self._emit(f"args->{pn} = {pn};")
-            self._emit("pthread_t t;")
-            self._emit(f"pthread_create(&t, NULL, {trampoline_name}, args);")
-            self._emit("pthread_join(t, NULL);")
-            self._emit(f"{ret_type} result = args->_result;")
-            self._emit("free(args);")
-            self._emit("return result;")
-            self.indent_level -= 1
-            self._emit("}")
-            self._emit("")
 
     def _gen_method_decl(self, type_name: str, decl: FunctionDecl, impl_interface: Optional[str] = None):
         ret_type = "void"
@@ -1397,6 +1383,346 @@ class Codegen:
             self._emit(f"    {ret_prefix}{c_fn_name}({', '.join(call_args)});")
             self._emit("}")
             self._emit("")
+
+    # ------------------------------------------------------------------
+    # Tasks, futures, select
+    # ------------------------------------------------------------------
+    def _acquire_lines(self, ref: str, key: str, borrowed: bool) -> List[str]:
+        """Make a copy of a value that is safe to hand to another task.
+
+        Values that some variable still owns (borrowed) are retained or copied.
+        Fresh temporaries are *moved* into the task, which releases them when done."""
+        if not borrowed:
+            return []
+        if key == "str":
+            return [f"kol_arc_retain_str({ref});"]
+        if self._is_handle_key(key):
+            return [f"kol_obj_retain({ref});"]
+        if key.startswith("list_") and self._is_handle_key(key[5:]):
+            return [f"{ref} = kol_array_clone(&{ref});", f"kol_array_retain_objs(&{ref});"]
+        if key == "list_str":
+            return [f"{ref} = kol_array_clone_strs(&{ref});"]
+        if key.startswith("list") or key == "kol_array_t":
+            return [f"{ref} = kol_array_clone(&{ref});"]
+        if key in self.struct_fields:
+            return [f"kol_arc_retain_str({ref}.{f});" for f, t in self.struct_fields[key] if t == "KolStr"]
+        return []
+
+    def _release_lines(self, ref: str, key: str) -> List[str]:
+        if key == "str":
+            return [f"kol_arc_release_str({ref});"]
+        if self._is_handle_key(key):
+            return [f"kol_obj_release({ref});"]
+        if key.startswith("list_") and self._is_handle_key(key[5:]):
+            return [f"kol_array_free_objs(&{ref});"]
+        if key == "list_str":
+            return [f"kol_array_free_strs(&{ref});"]
+        if key.startswith("list") or key == "kol_array_t":
+            return [f"kol_array_free(&{ref});"]
+        if key in self.struct_fields:
+            return [f"kol_arc_release_str({ref}.{f});" for f, t in self.struct_fields[key] if t == "KolStr"]
+        return []
+
+    def _ensure_task_wrapper(self, name: str):
+        """Emit the argument struct, run function and result destructor used to spawn `name`."""
+        if name in self.task_wrappers:
+            return
+        self.task_wrappers.add(name)
+        decl = self.task_decls[name]
+        if decl.generic_params:
+            raise KolError(f"generic task function '{name}' cannot be spawned", decl.location)
+        if decl.return_type and (decl.return_type.is_fallible or decl.return_type.is_optional):
+            raise KolError(f"task '{name}' returns an optional/fallible value; spawn needs a plain return type", decl.location)
+
+        keys = [self._tkey(p.type_annot) if p.type_annot else "int" for p in decl.params]
+        fields = [f"    {self._ctype_of_key(k)} a{i};" for i, k in enumerate(keys)] or ["    char _unused;"]
+        self.type_decls.append("typedef struct {\n" + "\n".join(fields) + f"\n}} _KolTaskArgs_{name};")
+
+        ret_key = self.func_ret_types.get(name, "void")
+        ret_ct = None if ret_key == "void" else self._ctype_of_key(ret_key)
+        call = f"_kol_fn_{name}({', '.join(f'a->a{i}' for i in range(len(keys)))})"
+
+        lines = [f"static void _kol_run_{name}(void* raw, void* res) {{",
+                 f"    _KolTaskArgs_{name}* a = (_KolTaskArgs_{name}*)raw;",
+                 "    (void)res; (void)a;"]
+        lines.append(f"    *({ret_ct}*)res = {call};" if ret_ct else f"    {call};")
+        for i, k in enumerate(keys):
+            lines += ["    " + l for l in self._release_lines(f"a->a{i}", k)]
+        lines.append("}")
+        self.helper_funcs.append("\n".join(lines))
+
+        if ret_ct:
+            rel = self._release_lines(f"(*({ret_ct}*)r)", ret_key)
+            if rel:
+                self.helper_funcs.append(f"static void _kol_dtor_{name}(void* r) {{\n    " + "\n    ".join(rel) + "\n}")
+
+    def _result_dtor(self, name: str, ret_key: str) -> str:
+        if ret_key == "void":
+            return "NULL"
+        ret_ct = self._ctype_of_key(ret_key)
+        return f"_kol_dtor_{name}" if self._release_lines(f"(*({ret_ct}*)r)", ret_key) else "NULL"
+
+    def _gen_spawn(self, expr: "SpawnExpr") -> str:
+        call = expr.call
+        if (not isinstance(call, CallExpr) or not isinstance(call.callee, Ident)
+                or call.callee.name not in self.task_decls or not self.task_decls[call.callee.name].is_task):
+            raise KolError("spawn needs a call to a 'task fn', e.g. 'spawn work(5)'", expr.location)
+        name = call.callee.name
+        decl = self.task_decls[name]
+        if call.named_args:
+            raise KolError("named arguments are not supported with spawn", expr.location)
+        if len(call.args) > len(decl.params):
+            raise KolError(f"task '{name}' takes {len(decl.params)} argument(s) but {len(call.args)} were given", expr.location)
+
+        self.uses_conc = True
+        self._ensure_task_wrapper(name)
+        keys = [self._tkey(p.type_annot) if p.type_annot else "int" for p in decl.params]
+        ret_key = self.func_ret_types.get(name, "void")
+        res_size = "0" if ret_key == "void" else f"sizeof({self._ctype_of_key(ret_key)})"
+
+        # Evaluate the arguments first: they may emit statements of their own.
+        arg_vals = []
+        for i, p in enumerate(decl.params):
+            if i < len(call.args):
+                arg_vals.append((self._gen_expr(call.args[i]), self._is_borrowed_expr(call.args[i])))
+            elif p.default_val is not None:
+                arg_vals.append((self._gen_expr(p.default_val), False))
+            else:
+                raise KolError(f"task '{name}' is missing argument '{p.name}'", expr.location)
+
+        f = self._temp_var("fut")
+        self._emit(f"KolFuture* {f} = kol_future_new(_kol_run_{name}, sizeof(_KolTaskArgs_{name}), {res_size}, {self._result_dtor(name, ret_key)});")
+        self._emit(f"_KolTaskArgs_{name}* {f}_a = (_KolTaskArgs_{name}*){f}->args;")
+        for i, ((val, borrowed), k) in enumerate(zip(arg_vals, keys)):
+            self._emit(f"{f}_a->a{i} = {val};")
+            for line in self._acquire_lines(f"{f}_a->a{i}", k, borrowed):
+                self._emit(line)
+        self._emit(f"kol_future_submit({f});")
+        return f
+
+    def _emit_future_value(self, fut: str, key: str, release: bool) -> str:
+        """Wait for a future and return a C expression holding its (independently owned) value."""
+        if key == "void":
+            self._emit(f"kol_future_wait({fut});")
+            if release:
+                self._emit(f"kol_obj_release({fut});")
+            return "0"
+        ct = self._ctype_of_key(key)
+        tmp = self._temp_var("aw")
+        self._emit(f"{ct} {tmp} = *({ct}*)kol_future_wait({fut});")
+        for line in self._acquire_lines(tmp, key, True):
+            self._emit(line)
+        if release:
+            self._emit(f"kol_obj_release({fut});")
+        return tmp
+
+    def _gen_await(self, expr: AwaitExpr) -> str:
+        t = expr.task_expr
+        # `await f(x)`: the caller waits for the result right away, so the call simply
+        # runs on the calling thread - no thread, no queue, no overhead.
+        if isinstance(t, CallExpr) and isinstance(t.callee, Ident):
+            name = t.callee.name
+            callee = name if name in self.extern_fns else f"_kol_fn_{name}"
+            return f"{callee}({', '.join(self._gen_expr(a) for a in t.args)})"
+        key = self._infer_expr_type(t)
+        if key.startswith("future_"):
+            self.uses_conc = True
+            fut = self._gen_expr(t)
+            return self._emit_future_value(fut, key[len("future_"):], isinstance(t, SpawnExpr))
+        return self._gen_expr(t)
+
+    def _gen_builtin_call(self, expr: CallExpr) -> Optional[str]:
+        """sleep(ms), now_ms(), cpu_count(), yield_now(), mutex(), atomic(n)"""
+        if not isinstance(expr.callee, Ident):
+            return None
+        name = expr.callee.name
+        if (name in self.func_ret_types or name in self.generic_func_defs or name in self.struct_fields
+                or name in self.extern_fns or self.var_types.get(name, "").startswith("lambda")):
+            return None
+        if name == "sleep":
+            self.uses_conc = True
+            return f"kol_sleep_ms({self._gen_expr(expr.args[0]) if expr.args else '0'})"
+        if name == "now_ms":
+            self.uses_conc = True
+            return "kol_now_ms()"
+        if name == "cpu_count":
+            self.uses_conc = True
+            return "kol_cpu_count()"
+        if name == "yield_now":
+            self.uses_conc = True
+            return "kol_yield()"
+        if name == "mutex":
+            self.uses_conc = True
+            return "kol_mutex_create()"
+        if name == "atomic":
+            self.uses_conc = True
+            return f"kol_atomic_create({self._gen_expr(expr.args[0]) if expr.args else '0'})"
+        return None
+
+    def _gen_handle_method(self, expr: MethodCallExpr, obj: str, obj_t: str) -> Optional[str]:
+        """Methods of channels, futures, mutexes and atomics. Returns None if obj_t is none of them."""
+        m = expr.method_name
+        args = expr.args
+
+        def need(n: int):
+            if len(args) != n:
+                raise KolError(f"{m}() takes {n} argument(s) but {len(args)} were given", expr.location)
+
+        if obj_t.startswith("channel"):
+            self.uses_conc = True
+            elem_key = obj_t[8:] if len(obj_t) > 8 else "int"
+            elem_c = self._ctype_of_key(elem_key)
+            if m == "send":
+                need(1)
+                val_c = self._gen_expr(args[0])
+                tmp_v = self._temp_var("send")
+                self._emit(f"{elem_c} {tmp_v} = {val_c};")
+                if elem_key == "str" and self._is_borrowed_expr(args[0]):
+                    self._emit(f"kol_arc_retain_str({tmp_v});")
+                self._emit(f"kol_channel_send({obj}, &{tmp_v});")
+                return ""
+            if m == "receive":
+                need(0)
+                tmp_v = self._temp_var("recv")
+                self._emit(f"{elem_c} {tmp_v};")
+                self._emit(f"kol_channel_recv({obj}, &{tmp_v});")
+                return tmp_v
+            if m == "close":
+                need(0)
+                self._emit(f"kol_channel_close({obj});")
+                return ""
+            if m == "len":
+                need(0)
+                return f"kol_channel_len({obj})"
+            if m == "cap":
+                need(0)
+                return f"kol_channel_cap({obj})"
+            if m == "is_closed":
+                need(0)
+                return f"kol_channel_is_closed({obj})"
+            raise KolError(f"channels have no method '{m}' (send, receive, close, len, cap, is_closed)", expr.location)
+
+        if obj_t == "mutex":
+            self.uses_conc = True
+            need(0)
+            if m == "lock": return f"kol_mutex_lock({obj})"
+            if m == "unlock": return f"kol_mutex_unlock({obj})"
+            if m == "try_lock": return f"kol_mutex_try_lock({obj})"
+            raise KolError(f"mutex has no method '{m}' (lock, unlock, try_lock)", expr.location)
+
+        if obj_t == "atomic":
+            self.uses_conc = True
+            vals = [self._gen_expr(a) for a in args]
+            table = {"load": (0, "kol_atomic_load"), "store": (1, "kol_atomic_store"), "add": (1, "kol_atomic_add"),
+                     "sub": (1, "kol_atomic_sub"), "swap": (1, "kol_atomic_swap"), "cas": (2, "kol_atomic_cas")}
+            if m not in table:
+                raise KolError(f"atomic has no method '{m}' (load, store, add, sub, swap, cas)", expr.location)
+            need(table[m][0])
+            return f"{table[m][1]}({', '.join([obj] + vals)})"
+
+        if obj_t.startswith("future_"):
+            self.uses_conc = True
+            if m == "done":
+                need(0)
+                return f"kol_future_done({obj})"
+            raise KolError(f"futures have no method '{m}' (use 'await' to get the value, done() to poll)", expr.location)
+
+        return None
+
+    def _gen_select(self, stmt: "SelectStmt", cf, co, ok):
+        self.uses_conc = True
+        sid = self._temp_var("sel")
+        arms = stmt.arms
+        self._emit("{")
+        self.indent_level += 1
+
+        comm = []   # (arm index, ctype, elem_key)
+        default_idx = timeout_idx = -1
+        for idx, arm in enumerate(arms):
+            if arm.kind in ("receive", "send"):
+                key = self._infer_expr_type(arm.channel)
+                if not key.startswith("channel"):
+                    raise KolError("select cases must operate on a channel", arm.location)
+                elem_key = key[8:] if len(key) > 8 else "int"
+                ct = self._ctype_of_key(elem_key)
+                self._emit(f"KolChannel* {sid}_ch{idx} = {self._gen_expr(arm.channel)};")
+                if arm.kind == "receive":
+                    self._emit(f"{ct} {sid}_v{idx};")
+                    self._emit(f"int {sid}_ok{idx} = 0;")
+                else:
+                    self._emit(f"{ct} {sid}_v{idx} = {self._gen_expr(arm.value)};")
+                    if elem_key == "str" and self._is_borrowed_expr(arm.value):
+                        self._emit(f"kol_arc_retain_str({sid}_v{idx});")
+                comm.append((idx, ct, elem_key))
+            elif arm.kind == "timeout":
+                timeout_idx = idx
+                self._emit(f"int64_t {sid}_dl = kol_now_ms() + (int64_t)({self._gen_expr(arm.value)});")
+            else:
+                default_idx = idx
+
+        self._emit(f"int {sid} = -1;")
+        self._emit("kol_select_enter();")
+        self._emit("for (;;) {")
+        self.indent_level += 1
+        self._emit(f"uint64_t {sid}_seen = kol_select_epoch();")
+        if comm:
+            n = len(comm)
+            self._emit(f"uint32_t {sid}_start = kol_select_rand({n});")
+            self._emit(f"for (uint32_t {sid}_k = 0; {sid}_k < {n}; {sid}_k++) {{")
+            self.indent_level += 1
+            self._emit(f"switch (({sid}_start + {sid}_k) % {n}) {{")
+            for j, (idx, ct, elem_key) in enumerate(comm):
+                if arms[idx].kind == "receive":
+                    self._emit(f"case {j}: {{ int {sid}_r = kol_channel_try_recv({sid}_ch{idx}, &{sid}_v{idx}); "
+                               f"if ({sid}_r != 0) {{ {sid} = {idx}; {sid}_ok{idx} = ({sid}_r > 0); }} break; }}")
+                else:
+                    self._emit(f"case {j}: {{ if (kol_channel_try_send({sid}_ch{idx}, &{sid}_v{idx})) {sid} = {idx}; break; }}")
+            self._emit("}")
+            self._emit(f"if ({sid} >= 0) break;")
+            self.indent_level -= 1
+            self._emit("}")
+            self._emit(f"if ({sid} >= 0) break;")
+        if default_idx >= 0:
+            self._emit(f"{sid} = {default_idx}; break;")
+        elif timeout_idx >= 0:
+            self._emit(f"if (!kol_select_wait({sid}_seen, {sid}_dl)) {{ {sid} = {timeout_idx}; break; }}")
+        else:
+            self._emit(f"kol_select_wait({sid}_seen, -1);")
+        self.indent_level -= 1
+        self._emit("}")
+        self._emit("kol_select_leave();")
+
+        # A value that was prepared for a send case but not sent still holds a reference.
+        for idx, ct, elem_key in comm:
+            if arms[idx].kind == "send" and elem_key == "str":
+                self._emit(f"if ({sid} != {idx}) kol_arc_release_str({sid}_v{idx});")
+
+        # Bodies are an if-chain (not a switch) so 'break'/'continue' still reach the enclosing Kol loop.
+        for idx, arm in enumerate(arms):
+            self._emit(("if" if idx == 0 else "} else if") + f" ({sid} == {idx}) {{")
+            self.indent_level += 1
+            self._push_scope()
+            if arm.kind == "receive" and arm.names:
+                ct, elem_key = next((c, k) for i, c, k in comm if i == idx)
+                v = arm.names[0]
+                self.var_types[v] = elem_key
+                self._emit(f"{ct} {self._safe_c_name(v)} = {sid}_v{idx};")
+                if elem_key == "str":
+                    self.scope_stack[-1].append((v, "str"))
+                if len(arm.names) > 1:
+                    self.var_types[arm.names[1]] = "bool"
+                    self._emit(f"bool {self._safe_c_name(arm.names[1])} = {sid}_ok{idx};")
+            elif arm.kind == "receive":
+                ct, elem_key = next((c, k) for i, c, k in comm if i == idx)
+                if elem_key == "str":
+                    self._emit(f"kol_arc_release_str({sid}_v{idx});")
+            for s_ in arm.body:
+                self._gen_statement(s_, cf, co, ok)
+            self._pop_and_emit_cleanup()
+            self.indent_level -= 1
+        self._emit("}")
+        self.indent_level -= 1
+        self._emit("}")
 
     def _gen_expr(self, expr: ASTNode) -> str:
         if isinstance(expr, IntLit):
@@ -1487,7 +1813,9 @@ class Codegen:
                 if isinstance(expr.right, Ident):
                     self._emit(f"kol_arc_retain_str({tmp_r});")
                 self._emit(f"KolStr {res_v} = kol_str_concat({tmp_l}, {tmp_r});")
-                self._emit(f"kol_arc_release_str({tmp_l});")
+                # concat appends in place when it can, returning the left operand's buffer:
+                # releasing the left operand then would free the result.
+                self._emit(f"if (!({res_v}.is_heap && {tmp_l}.is_heap && {res_v}.heap.ptr == {tmp_l}.heap.ptr)) kol_arc_release_str({tmp_l});")
                 self._emit(f"kol_arc_release_str({tmp_r});")
                 return res_v
             if is_str_cmp and op == "==":
@@ -1500,12 +1828,10 @@ class Codegen:
             return f"({left} {op} {right})"
 
         if isinstance(expr, AwaitExpr):
-            if isinstance(expr.task_expr, CallExpr):
-                if isinstance(expr.task_expr.callee, Ident):
-                    task_name = expr.task_expr.callee.name
-                    arg_strs = [self._gen_expr(a) for a in expr.task_expr.args]
-                    return f"_kol_task_{task_name}({', '.join(arg_strs)})"
-            return self._gen_expr(expr.task_expr)
+            return self._gen_await(expr)
+
+        if isinstance(expr, SpawnExpr):
+            return self._gen_spawn(expr)
 
         if isinstance(expr, UnaryOp):
             operand = self._gen_expr(expr.operand)
@@ -1574,7 +1900,7 @@ class Codegen:
             if target_t == "list_str": elem_c_t = "KolStr"
             elif target_t == "list_float": elem_c_t = "double"
             elif target_t == "list_bool": elem_c_t = "bool"
-            elif target_t.startswith("list_"): elem_c_t = target_t[5:]
+            elif target_t.startswith("list_"): elem_c_t = self._ctype_of_key(target_t[5:])
             if self.release_mode:
                 return f"((({elem_c_t}* restrict){target}.data)[{idx}])"
             return f"(*(({elem_c_t}*)kol_array_get(&{target}, {idx}, \"{self.filename}\", {expr.location.line if expr.location else 0})))"
@@ -1629,6 +1955,10 @@ class Codegen:
                         return f"kol_print_bool({arg_c})"
                     return f"kol_print_int({arg_c})"
                 return 'printf("\\n")'
+
+            builtin = self._gen_builtin_call(expr)
+            if builtin is not None:
+                return builtin
 
             if isinstance(expr.callee, FieldAccess) and isinstance(expr.callee.target, Ident) and expr.callee.target.name == "mem":
                 m_name = expr.callee.field_name
@@ -1743,14 +2073,17 @@ class Codegen:
             return f"{callee_name}({', '.join(arg_strs)})"
 
         if isinstance(expr, ChannelExpr):
-            elem_t = "int64_t"
-            if expr.elem_type:
-                tname = expr.elem_type.name
-                if tname == "float": elem_t = "double"
-                elif tname == "str": elem_t = "KolStr"
-                elif tname == "bool": elem_t = "bool"
-                elif tname != "int": elem_t = tname
-            return f"kol_channel_create(sizeof({elem_t}))"
+            self.uses_conc = True
+            key = self._tkey(expr.elem_type)
+            ct = self._ctype_of_key(key)
+            if expr.capacity is None:
+                cap = "1"
+            else:
+                if isinstance(expr.capacity, IntLit) and expr.capacity.value < 1:
+                    raise KolError("channel capacity must be at least 1", expr.location)
+                cap = self._gen_expr(expr.capacity)
+            kind = "KOL_ELEM_STR" if key == "str" else "KOL_ELEM_PLAIN"
+            return f"kol_channel_create(sizeof({ct}), {cap}, {kind})"
 
         if isinstance(expr, MethodCallExpr):
             if self.in_system_block and isinstance(expr.object, Ident) and expr.object.name == "mem":
@@ -1766,29 +2099,9 @@ class Codegen:
             obj = self._gen_expr(expr.object)
             obj_t = self._infer_expr_type(expr.object)
 
-            if obj_t.startswith("channel"):
-                elem_key = obj_t[8:] if len(obj_t) > 8 else "int"
-                elem_c = "int64_t"
-                if elem_key == "float": elem_c = "double"
-                elif elem_key == "str": elem_c = "KolStr"
-                elif elem_key == "bool": elem_c = "bool"
-                elif elem_key != "int": elem_c = elem_key
-
-                m = expr.method_name
-                if m == "send":
-                    val_c = self._gen_expr(expr.args[0])
-                    tmp_v = self._temp_var("send")
-                    self._emit(f"{elem_c} {tmp_v} = {val_c};")
-                    self._emit(f"kol_channel_send({obj}, &{tmp_v});")
-                    return ""
-                elif m == "receive":
-                    tmp_v = self._temp_var("recv")
-                    self._emit(f"{elem_c} {tmp_v};")
-                    self._emit(f"kol_channel_recv({obj}, &{tmp_v});")
-                    return tmp_v
-                elif m == "close":
-                    self._emit(f"kol_channel_close({obj});")
-                    return ""
+            handled = self._gen_handle_method(expr, obj, obj_t)
+            if handled is not None:
+                return handled
 
             if obj_t == "str":
                 arg_strs = [self._gen_expr(a) for a in expr.args]
@@ -1826,7 +2139,7 @@ class Codegen:
                     elif obj_t == "list_float": elem_t = "double"
                     elif obj_t == "list_bool": elem_t = "bool"
                     elif obj_t == "list_int": elem_t = "int64_t"
-                    elif obj_t.startswith("list_"): elem_t = obj_t[5:]
+                    elif obj_t.startswith("list_"): elem_t = self._ctype_of_key(obj_t[5:])
                     self._emit(f"{elem_t} {tmp_v} = {arg_strs[0]};")
                     return f"kol_array_push(&{obj}, &{tmp_v})"
 
@@ -1852,8 +2165,16 @@ class Codegen:
             elif target_t.startswith("list_"): return target_t[5:]
             return "int"
         if isinstance(expr, ChannelExpr):
-            elem_n = expr.elem_type.name if expr.elem_type else "int"
-            return f"channel_{elem_n}"
+            return f"channel_{self._tkey(expr.elem_type)}"
+        if isinstance(expr, SpawnExpr):
+            c = expr.call
+            rk = self.func_ret_types.get(c.callee.name, "void") if isinstance(c, CallExpr) and isinstance(c.callee, Ident) else "void"
+            return f"future_{rk}"
+        if isinstance(expr, AwaitExpr):
+            k = self._infer_expr_type(expr.task_expr)
+            if k.startswith("future_"):
+                return k[len("future_"):]
+            return k
         if isinstance(expr, StrLit) or isinstance(expr, StrInterp):
             return "str"
         if isinstance(expr, FloatLit):
@@ -1903,6 +2224,12 @@ class Codegen:
                 return "void"
             if isinstance(expr.callee, Ident):
                 fn_name = expr.callee.name
+                if (fn_name not in self.func_ret_types and fn_name not in self.generic_func_defs
+                        and fn_name not in self.struct_fields and fn_name not in self.extern_fns):
+                    if fn_name == "mutex": return "mutex"
+                    if fn_name == "atomic": return "atomic"
+                    if fn_name in ("cpu_count", "now_ms"): return "int"
+                    if fn_name in ("sleep", "yield_now"): return "void"
                 if fn_name in self.func_ret_types:
                     rt = self.func_ret_types[fn_name]
                     if rt == "KolOptStr": return "str"
@@ -1945,7 +2272,18 @@ class Codegen:
                 if m == "receive":
                     elem_key = obj_t[8:] if len(obj_t) > 8 else "int"
                     return elem_key
+                if m in ("len", "cap"): return "int"
+                if m == "is_closed": return "bool"
                 return "void"
+            if obj_t == "mutex":
+                return "bool" if expr.method_name == "try_lock" else "void"
+            if obj_t == "atomic":
+                m = expr.method_name
+                if m == "cas": return "bool"
+                if m == "store": return "void"
+                return "int"
+            if obj_t.startswith("future_"):
+                return "bool" if expr.method_name == "done" else "void"
             if obj_t.startswith("list") or obj_t == "kol_array_t":
                 list_method_types = {
                     "len": "int", "pop": "int", "contains": "bool",

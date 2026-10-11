@@ -160,6 +160,18 @@ class Analyser:
                 self._analyse_stmt(arm.body)
                 self._pop_scope()
 
+        elif isinstance(stmt, SelectStmt):
+            for arm in stmt.arms:
+                for part in (arm.channel, arm.value):
+                    if part is not None:
+                        self._analyse_expr(part)
+                self._push_scope()
+                for i, n in enumerate(arm.names):
+                    self.current_scope.define(n, "any" if i == 0 else "bool", is_mut=False)
+                for s_ in arm.body:
+                    self._analyse_stmt(s_)
+                self._pop_scope()
+
         elif isinstance(stmt, TypeDecl):
             self.type_defs[stmt.name] = stmt
 

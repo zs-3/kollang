@@ -1,0 +1,22 @@
+-- Many more blocked tasks than CPU cores: the pool must grow so that the tasks
+-- which would unblock them can still run.
+task fn waiter(gate: channel(int), id: int) -> int
+    let v = gate.receive()
+    return v + id
+end
+
+fn main()
+    let gate = channel(int, 300)
+    mut waiters: [future(int)] = []
+    for i in 0..100
+        waiters.push(spawn waiter(gate, i))
+    end
+    for i in 0..100
+        gate.send(1)
+    end
+    mut total = 0
+    for w in waiters
+        total = total + await w
+    end
+    print(total)
+end

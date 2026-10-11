@@ -1,0 +1,43 @@
+-- Worker pool: N workers pull jobs from one channel and push results to another.
+
+task fn worker(id: int, jobs: channel(int), results: channel(int))
+    for n in jobs
+        -- "expensive" work: sum of the first n integers
+        mut s = 0
+        for i in 1..=n
+            s = s + i
+        end
+        results.send(s)
+    end
+end
+
+task fn feeder(jobs: channel(int), count: int)
+    for n in 1..=count
+        jobs.send(n * 1000)
+    end
+    jobs.close()
+end
+
+fn main()
+    let jobs = channel(int, 8)
+    let results = channel(int, 8)
+    let workers = cpu_count()
+    print("using {workers} workers")
+
+    mut pool: [future(int)] = []
+    for id in 0..workers
+        let w = spawn worker(id, jobs, results)
+        pool.push(w)
+    end
+    let f = spawn feeder(jobs, 40)
+
+    mut total = 0
+    for i in 0..40
+        total = total + results.receive()
+    end
+    print("total = {total}")
+    await f
+    for w in pool
+        await w
+    end
+end
