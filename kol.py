@@ -97,7 +97,37 @@ def resolve_imports_and_parse(filepath: str, visited: set) -> List[ASTNode]:
 
             if resolved_file:
                 imported_nodes = resolve_imports_and_parse(resolved_file, visited)
-                nodes.extend(imported_nodes)
+
+                if stmt.imports:
+                    # Selective import: keep only the requested top-level
+                    # declarations (by original name), and rename any that
+                    # were given an alias via `name as alias`.
+                    wanted = set(stmt.imports)
+                    found = set()
+                    filtered = []
+                    for n in imported_nodes:
+                        decl_name = getattr(n, "name", None)
+                        if decl_name is not None and decl_name in wanted:
+                            found.add(decl_name)
+                            alias = stmt.aliases.get(decl_name)
+                            if alias:
+                                n.name = alias
+                            filtered.append(n)
+                        elif isinstance(n, UseStmt):
+                            # Transitive imports from the target file itself
+                            # still need to be pulled in so the selected
+                            # declarations' own dependencies resolve.
+                            filtered.append(n)
+                    missing = wanted - found
+                    if missing:
+                        raise KolError(
+                            f"'{', '.join(sorted(missing))}' not found in '{import_path}' "
+                            f"(requested via selective import)",
+                            location=stmt_loc,
+                        )
+                    nodes.extend(filtered)
+                else:
+                    nodes.extend(imported_nodes)
             else:
                 tried_str = ", ".join(tried_paths)
                 raise KolError(f"Cannot resolve import '{import_path}'. Tried: {tried_str}", location=stmt_loc)
