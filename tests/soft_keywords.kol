@@ -1,0 +1,17 @@
+extern fn kol_str_find(s: str, sub: str, from: int) -> int from "kol_runtime"
+fn walk(start: int, stop: int, step: int) -> int
+    mut total = 0
+    mut i = start
+    while i < stop
+        total = total + i
+        i = i + step
+    end
+    return total
+end
+let from = 3
+print(walk(0, 10, 3))
+print(kol_str_find("hello world", "o", from))
+for k in 0..10 step 4
+    print(k)
+end
+print(from + 1)

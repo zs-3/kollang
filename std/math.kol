@@ -1,27 +1,9 @@
+use std.core
+
 const PI  = 3.141592653589793
 const E   = 2.718281828459045
 const TAU = 6.283185307179586
 const INF = 999999999999999.0
-
-fn abs_int(x: int) -> int
-    if x < 0 return x * -1 end
-    return x
-end
-
-fn abs_float(x: float) -> float
-    if x < 0.0 return x * -1.0 end
-    return x
-end
-
-fn min_int(a: int, b: int) -> int
-    if a < b return a end
-    return b
-end
-
-fn max_int(a: int, b: int) -> int
-    if a > b return a end
-    return b
-end
 
 fn clamp(x: int, lo: int, hi: int) -> int
     if x < lo return lo end
@@ -37,14 +19,6 @@ end
 fn fibonacci(n: int) -> int
     if n <= 1 return n end
     return fibonacci(n-1) + fibonacci(n-2)
-end
-
-fn is_even(n: int) -> bool
-    return n mod 2 == 0
-end
-
-fn is_odd(n: int) -> bool
-    return n mod 2 != 0
 end
 
 fn pow_int(base: int, exp: int) -> int
@@ -81,4 +55,248 @@ end
 
 fn sum_to(n: int) -> int
     return n * (n + 1) / 2
+end
+
+-- ---------------------------------------------------------------------------
+-- C math library bindings (float -> float)
+-- ---------------------------------------------------------------------------
+extern fn sqrt(x: float) -> float from "math"
+extern fn cbrt(x: float) -> float from "math"
+extern fn pow(x: float, y: float) -> float from "math"
+extern fn exp(x: float) -> float from "math"
+extern fn log(x: float) -> float from "math"
+extern fn log2(x: float) -> float from "math"
+extern fn log10(x: float) -> float from "math"
+extern fn sin(x: float) -> float from "math"
+extern fn cos(x: float) -> float from "math"
+extern fn tan(x: float) -> float from "math"
+extern fn asin(x: float) -> float from "math"
+extern fn acos(x: float) -> float from "math"
+extern fn atan(x: float) -> float from "math"
+extern fn atan2(y: float, x: float) -> float from "math"
+extern fn sinh(x: float) -> float from "math"
+extern fn cosh(x: float) -> float from "math"
+extern fn tanh(x: float) -> float from "math"
+extern fn floor(x: float) -> float from "math"
+extern fn ceil(x: float) -> float from "math"
+extern fn round(x: float) -> float from "math"
+extern fn trunc(x: float) -> float from "math"
+extern fn fmod(x: float, y: float) -> float from "math"
+extern fn hypot(x: float, y: float) -> float from "math"
+extern fn llround(x: float) -> int from "math"
+
+const SQRT2 = 1.4142135623730951
+const LN2   = 0.6931471805599453
+const LN10  = 2.302585092994046
+const PHI   = 1.618033988749895
+
+-- ---------------------------------------------------------------------------
+-- int <-> float conversion (Kol has no cast operator)
+-- ---------------------------------------------------------------------------
+fn to_float(n: int) -> float
+    return n * 1.0
+end
+
+fn to_int(x: float) -> int
+    return llround(trunc(x))
+end
+
+fn floor_int(x: float) -> int
+    return llround(floor(x))
+end
+
+fn ceil_int(x: float) -> int
+    return llround(ceil(x))
+end
+
+fn round_int(x: float) -> int
+    return llround(round(x))
+end
+
+-- ---------------------------------------------------------------------------
+-- float helpers
+-- ---------------------------------------------------------------------------
+fn min_float(a: float, b: float) -> float
+    if a < b return a end
+    return b
+end
+
+fn max_float(a: float, b: float) -> float
+    if a > b return a end
+    return b
+end
+
+fn clamp_float(x: float, lo: float, hi: float) -> float
+    if x < lo return lo end
+    if x > hi return hi end
+    return x
+end
+
+fn sign_int(x: int) -> int
+    if x > 0 return 1 end
+    if x < 0 return -1 end
+    return 0
+end
+
+fn sign_float(x: float) -> int
+    if x > 0.0 return 1 end
+    if x < 0.0 return -1 end
+    return 0
+end
+
+fn lerp(a: float, b: float, t: float) -> float
+    return a + (b - a) * t
+end
+
+fn deg_to_rad(d: float) -> float
+    return d * PI / 180.0
+end
+
+fn rad_to_deg(r: float) -> float
+    return r * 180.0 / PI
+end
+
+fn is_nan(x: float) -> bool
+    return x != x
+end
+
+fn is_close(a: float, b: float, eps: float) -> bool
+    return abs_float(a - b) <= eps
+end
+
+fn square(x: int) -> int
+    return x * x
+end
+
+fn square_float(x: float) -> float
+    return x * x
+end
+
+-- ---------------------------------------------------------------------------
+-- integer number theory
+-- ---------------------------------------------------------------------------
+fn isqrt(n: int) -> int
+    if n < 0 return 0 end
+    mut r = floor_int(sqrt(to_float(n)))
+    while r * r > n
+        r = r - 1
+    end
+    while (r + 1) * (r + 1) <= n
+        r = r + 1
+    end
+    return r
+end
+
+fn is_perfect_square(n: int) -> bool
+    if n < 0 return false end
+    let r = isqrt(n)
+    return r * r == n
+end
+
+fn pow_mod(base: int, exp: int, m: int) -> int
+    if m == 1 return 0 end
+    mut result = 1
+    mut b = base mod m
+    if b < 0
+        b = b + m
+    end
+    mut e = exp
+    while e > 0
+        if e mod 2 == 1
+            result = (result * b) mod m
+        end
+        b = (b * b) mod m
+        e = e / 2
+    end
+    return result
+end
+
+fn binomial(n: int, k: int) -> int
+    if k < 0 return 0 end
+    if k > n return 0 end
+    mut kk = k
+    if kk > n - kk
+        kk = n - kk
+    end
+    mut result = 1
+    mut i = 1
+    while i <= kk
+        result = result * (n - kk + i) / i
+        i = i + 1
+    end
+    return result
+end
+
+fn digit_sum(n: int) -> int
+    mut x = abs_int(n)
+    mut total = 0
+    while x > 0
+        total = total + x mod 10
+        x = x / 10
+    end
+    return total
+end
+
+fn count_digits(n: int) -> int
+    mut x = abs_int(n)
+    if x == 0 return 1 end
+    mut c = 0
+    while x > 0
+        c = c + 1
+        x = x / 10
+    end
+    return c
+end
+
+fn next_prime(n: int) -> int
+    mut c = n + 1
+    while not is_prime(c)
+        c = c + 1
+    end
+    return c
+end
+
+fn prime_factors(n: int) -> [int]
+    mut out: [int] = []
+    mut x = abs_int(n)
+    mut d = 2
+    while d * d <= x
+        while x mod d == 0
+            out.push(d)
+            x = x / d
+        end
+        d = d + 1
+    end
+    if x > 1
+        out.push(x)
+    end
+    return out
+end
+
+fn fib_fast(n: int) -> int
+    if n <= 1 return n end
+    mut a = 0
+    mut b = 1
+    mut i = 2
+    while i <= n
+        let t = a + b
+        a = b
+        b = t
+        i = i + 1
+    end
+    return b
+end
+
+fn is_power_of_two(n: int) -> bool
+    if n <= 0 return false end
+    return n mod 2 == 0 and is_power_of_two_rec(n)
+end
+
+fn is_power_of_two_rec(n: int) -> bool
+    mut x = n
+    while x > 1
+        if x mod 2 != 0 return false end
+        x = x / 2
+    end
+    return true
 end

@@ -1,0 +1,21 @@
+-- std/hash.kol : non-cryptographic string hashes (do NOT use for security)
+
+extern fn kol_hash_fnv1a(s: str) -> int from "kol_runtime"
+extern fn kol_hash_djb2(s: str) -> int from "kol_runtime"
+extern fn kol_hash_crc32(s: str) -> int from "kol_runtime"
+
+fn hash_fnv1a(s: str) -> int
+    return kol_hash_fnv1a(s)
+end
+
+fn hash_djb2(s: str) -> int
+    return kol_hash_djb2(s)
+end
+
+fn hash_crc32(s: str) -> int
+    return kol_hash_crc32(s)
+end
+
+fn hash_combine(a: int, b: int) -> int
+    return (a * 31 + b) mod 4611686018427387903
+end

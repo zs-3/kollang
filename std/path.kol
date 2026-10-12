@@ -1,0 +1,67 @@
+-- std/path.kol : string based file path helpers (Unix style, "/" separator)
+
+use std.str
+
+fn path_is_absolute(p: str) -> bool
+    return p.starts_with("/")
+end
+
+fn path_join(a: str, b: str) -> str
+    if a.len() == 0 return b end
+    if b.len() == 0 return a end
+    if b.starts_with("/") return b end
+    mut out = a
+    if not a.ends_with("/")
+        out = out + "/"
+    end
+    out = out + b
+    return out
+end
+
+fn path_basename(p: str) -> str
+    mut trimmed = p
+    while trimmed.len() > 1 and trimmed.ends_with("/")
+        trimmed = trimmed.slice(0, trimmed.len() - 1)
+    end
+    let i = last_index_of(trimmed, "/")
+    if i < 0 return trimmed end
+    return trimmed.slice(i + 1, trimmed.len())
+end
+
+fn path_dirname(p: str) -> str
+    mut trimmed = p
+    while trimmed.len() > 1 and trimmed.ends_with("/")
+        trimmed = trimmed.slice(0, trimmed.len() - 1)
+    end
+    let i = last_index_of(trimmed, "/")
+    if i < 0 return "." end
+    if i == 0 return "/" end
+    return trimmed.slice(0, i)
+end
+
+-- extension including the dot ("a/b.txt" -> ".txt"), or "" when there is none
+fn path_extension(p: str) -> str
+    let base = path_basename(p)
+    let i = last_index_of(base, ".")
+    if i <= 0 return "" end
+    return base.slice(i, base.len())
+end
+
+-- file name without its extension ("a/b.tar.gz" -> "b.tar")
+fn path_stem(p: str) -> str
+    let base = path_basename(p)
+    let i = last_index_of(base, ".")
+    if i <= 0 return base end
+    return base.slice(0, i)
+end
+
+fn path_with_extension(p: str, ext: str) -> str
+    let dir = path_dirname(p)
+    let stem = path_stem(p)
+    mut name = stem
+    name = name + ext
+    if dir == "." and not p.starts_with("./")
+        return name
+    end
+    return path_join(dir, name)
+end

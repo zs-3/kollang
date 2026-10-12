@@ -1,0 +1,17 @@
+use std.core
+use std.convert
+assert_eq_float(str_to_float("3.14159") or 0.0, 3.14159, 0.000001, "float")
+assert_eq_float(str_to_float("1e-3") or 0.0, 0.001, 0.0000001, "exp")
+assert_eq_float(str_to_float("abc") or -1.0, -1.0, 0.0001, "bad float")
+assert_true(is_int_str("42"), "is_int")
+assert_true(not is_int_str("4x2"), "not int")
+assert_eq_int(str_to_int_or("zz", 7), 7, "int_or")
+assert_true(str_to_bool("YES") or false, "bool yes")
+assert_eq_str(int_to_hex(255), "ff", "hex")
+assert_eq_str(int_to_bin(10), "1010", "bin")
+assert_eq_str(int_to_base(-255, 16), "-ff", "neg hex")
+assert_eq_int(hex_to_int("FF") or 0, 255, "hex_to_int")
+assert_eq_int(bin_to_int("1010") or 0, 10, "bin_to_int")
+assert_eq_int(hex_to_int("xyz") or -1, -1, "bad hex")
+assert_eq_str(to_roman(1994), "MCMXCIV", "roman")
+print("CONVERT EXTRA TESTS PASSED")

@@ -1,0 +1,31 @@
+-- std/os.kol : environment and process helpers
+
+extern fn kol_env_has(name: str) -> bool from "kol_runtime"
+extern fn kol_env_get(name: str) -> str from "kol_runtime"
+extern fn kol_cwd() -> str from "kol_runtime"
+extern fn kol_exit(code: int) from "kol_runtime"
+
+fn env_has(name: str) -> bool
+    return kol_env_has(name)
+end
+
+fn env_get(name: str) -> str!
+    if not kol_env_has(name)
+        fail "environment variable not set"
+    end
+    return kol_env_get(name)
+end
+
+fn env_get_or(name: str, fallback: str) -> str
+    if not kol_env_has(name) return fallback end
+    return kol_env_get(name)
+end
+
+fn current_dir() -> str
+    return kol_cwd()
+end
+
+-- flush stdout and terminate the process with the given exit code
+fn exit_program(code: int)
+    kol_exit(code)
+end

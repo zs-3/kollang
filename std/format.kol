@@ -2,6 +2,7 @@
 
 use std.convert
 use std.str
+use std.math
 
 fn format_int(n: int) -> str
     return int_to_str(n)
@@ -29,4 +30,100 @@ fn pad_right(s: str, total_len: int, pad_char: str) -> str
     let needed = total_len - current_len
     let padding = repeat_str(pad_char, needed)
     return s + padding
+end
+
+fn pad_center(s: str, total_len: int, pad_char: str) -> str
+    return center_str(s, total_len, pad_char)
+end
+
+-- fixed number of decimals: format_fixed(3.14159, 2) == "3.14"
+fn format_fixed(f: float, decimals: int) -> str
+    mut d = decimals
+    if d < 0
+        d = 0
+    end
+    let p = pow_int(10, d)
+    mut neg = false
+    mut x = f
+    if x < 0.0
+        neg = true
+        x = x * -1.0
+    end
+    let scaled = round_int(x * to_float(p))
+    let whole = scaled / p
+    let frac = scaled mod p
+    mut out = ""
+    if neg and scaled != 0
+        out = "-"
+    end
+    out = out + int_to_str(whole)
+    if d > 0
+        out = out + "."
+        out = out + pad_left(int_to_str(frac), d, "0")
+    end
+    return out
+end
+
+-- 1234567 -> "1,234,567"
+fn format_thousands(n: int) -> str
+    let digits: str = int_to_str(abs_int(n))
+    mut out = ""
+    mut i = 0
+    let len = digits.len()
+    while i < len
+        if i > 0 and (len - i) mod 3 == 0
+            out = out + ","
+        end
+        out = out + digits.slice(i, i + 1)
+        i = i + 1
+    end
+    if n < 0
+        out = "-" + out
+    end
+    return out
+end
+
+-- 0.256 -> "25.6%"
+fn format_percent(ratio: float, decimals: int) -> str
+    let body: str = format_fixed(ratio * 100.0, decimals)
+    return body + "%"
+end
+
+fn format_bytes(n: int) -> str
+    if n < 1024
+        return "{n} B"
+    end
+    let units = ["KB", "MB", "GB", "TB"]
+    mut value = to_float(n) / 1024.0
+    mut i = 0
+    while value >= 1024.0 and i < 3
+        value = value / 1024.0
+        i = i + 1
+    end
+    let num: str = format_fixed(value, 1)
+    let unit: str = units[i]
+    return "{num} {unit}"
+end
+
+-- 3725 -> "1h 2m 5s"
+fn format_duration(total_secs: int) -> str
+    if total_secs < 0 return "0s" end
+    let h = total_secs / 3600
+    let m = (total_secs mod 3600) / 60
+    let s = total_secs mod 60
+    if h > 0
+        return "{h}h {m}m {s}s"
+    end
+    if m > 0
+        return "{m}m {s}s"
+    end
+    return "{s}s"
+end
+
+fn format_hex(n: int, width: int) -> str
+    return pad_left(int_to_hex(n), width, "0")
+end
+
+fn format_bin(n: int, width: int) -> str
+    return pad_left(int_to_bin(n), width, "0")
 end

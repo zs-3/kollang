@@ -1,0 +1,77 @@
+use std.core
+use std.math
+use std.str
+use std.array
+use std.stats
+use std.text
+use std.time
+
+-- std library functions used inside concurrent tasks and shared through channels
+
+task fn prime_count(limit: int) -> int
+    mut c = 0
+    mut n = 2
+    while n <= limit
+        if is_prime(n)
+            c = c + 1
+        end
+        n = n + 1
+    end
+    return c
+end
+
+task fn word_stats(text: str, out: channel(int))
+    let words: [str] = str_words(text)
+    out.send(words.len())
+    out.send(levenshtein("kitten", "sitting"))
+    sleep_ms(5)
+    out.send(isqrt(144))
+end
+
+task fn sorter(seed: int) -> int
+    mut xs: [int] = []
+    mut i = 0
+    while i < 50
+        xs.push((i * 37 + seed) mod 101)
+        i = i + 1
+    end
+    let sorted: [int] = sort_int_array(xs)
+    if array_is_sorted(sorted)
+        return sorted[0] + sorted[49]
+    end
+    return -1
+end
+
+fn main()
+    let p1 = spawn prime_count(100)
+    let p2 = spawn prime_count(1000)
+    assert_eq_int(await p1, 25, "primes below 100")
+    assert_eq_int(await p2, 168, "primes below 1000")
+
+    let ch = channel(int, 4)
+    let w = spawn word_stats("the quick brown fox", ch)
+    assert_eq_int(ch.receive(), 4, "word count")
+    assert_eq_int(ch.receive(), 3, "levenshtein")
+    assert_eq_int(ch.receive(), 12, "isqrt")
+    await w
+
+    mut jobs: [future(int)] = []
+    for s in 0..4
+        let f = spawn sorter(s)
+        jobs.push(f)
+    end
+    mut ok = true
+    for f in jobs
+        let r = await f
+        if r < 0
+            ok = false
+        end
+    end
+    assert_true(ok, "all sorters returned sorted arrays")
+
+    let names: [str] = ["pear", "apple", "fig"]
+    let sorted_names: [str] = sort_str_array(names)
+    assert_eq_str(sorted_names[0], "apple", "str sort alongside tasks")
+    assert_eq_str(names[0], "pear", "input untouched")
+    print("CONCURRENCY STD INTEROP PASSED")
+end

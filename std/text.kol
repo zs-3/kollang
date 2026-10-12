@@ -1,0 +1,134 @@
+-- std/text.kol : text analysis and layout helpers
+
+use std.str
+use std.array
+
+-- minimum number of single-character edits turning a into b
+fn levenshtein(a: str, b: str) -> int
+    let n = a.len()
+    let m = b.len()
+    if n == 0 return m end
+    if m == 0 return n end
+    -- one flat (n+1) x (m+1) table; arrays are never reassigned (they alias)
+    let w = m + 1
+    mut d: [int] = array_fill((n + 1) * w, 0)
+    mut j0 = 0
+    while j0 <= m
+        d[j0] = j0
+        j0 = j0 + 1
+    end
+    mut i = 1
+    while i <= n
+        d[i * w] = i
+        mut j = 1
+        while j <= m
+            mut cost = 1
+            if kol_char_code_at(a, i - 1) == kol_char_code_at(b, j - 1)
+                cost = 0
+            end
+            mut best = d[(i - 1) * w + j] + 1
+            if d[i * w + j - 1] + 1 < best
+                best = d[i * w + j - 1] + 1
+            end
+            if d[(i - 1) * w + j - 1] + cost < best
+                best = d[(i - 1) * w + j - 1] + cost
+            end
+            d[i * w + j] = best
+            j = j + 1
+        end
+        i = i + 1
+    end
+    return d[n * w + m]
+end
+
+-- greedy word wrap at `width` columns; returns the wrapped lines
+fn word_wrap(s: str, width: int) -> [str]
+    let words: [str] = str_words(s)
+    mut lines: [str] = str_array_empty()
+    mut cur = ""
+    for w in words
+        if cur.len() == 0
+            cur = w
+        elif cur.len() + 1 + w.len() <= width
+            cur = cur + " "
+            cur = cur + w
+        else
+            lines.push(cur)
+            cur = w
+        end
+    end
+    if cur.len() > 0
+        lines.push(cur)
+    end
+    return lines
+end
+
+fn count_words(s: str) -> int
+    let words: [str] = str_words(s)
+    return words.len()
+end
+
+fn count_lines(s: str) -> int
+    if s.len() == 0 return 0 end
+    let lines: [str] = str_lines(s)
+    mut n = lines.len()
+    if lines[n - 1].len() == 0
+        n = n - 1
+    end
+    return n
+end
+
+-- longest common prefix of two strings
+fn common_prefix(a: str, b: str) -> str
+    mut i = 0
+    while i < a.len() and i < b.len() and kol_char_code_at(a, i) == kol_char_code_at(b, i)
+        i = i + 1
+    end
+    return a.slice(0, i)
+end
+
+fn indent_text(s: str, prefix: str) -> str
+    let lines: [str] = str_lines(s)
+    mut out = ""
+    mut i = 0
+    while i < lines.len()
+        if i > 0
+            out = out + "\n"
+        end
+        out = out + prefix
+        out = out + lines[i]
+        i = i + 1
+    end
+    return out
+end
+
+-- "Hello World" -> "hello_world"
+fn to_snake_case(s: str) -> str
+    let words: [str] = str_words(s.replace("-", " ").replace("_", " "))
+    mut out = ""
+    mut i = 0
+    while i < words.len()
+        if i > 0
+            out = out + "_"
+        end
+        out = out + words[i].lower()
+        i = i + 1
+    end
+    return out
+end
+
+-- "hello big world" -> "helloBigWorld"
+fn to_camel_case(s: str) -> str
+    let words: [str] = str_words(s.replace("-", " ").replace("_", " "))
+    mut out = ""
+    mut i = 0
+    while i < words.len()
+        if i == 0
+            out = out + words[i].lower()
+        else
+            out = out + capitalize(words[i])
+        end
+        i = i + 1
+    end
+    return out
+end

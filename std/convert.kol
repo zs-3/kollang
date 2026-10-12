@@ -1,3 +1,6 @@
+use std.str
+extern fn kol_str_is_float(s: str) -> bool from "kol_runtime"
+extern fn kol_str_to_float(s: str) -> float from "kol_runtime"
 -- std/convert.kol
 
 fn int_to_str(n: int) -> str
@@ -55,7 +58,7 @@ fn str_to_int(s: str) -> int!
     return val
 end
 
-fn str_to_float(s: str) -> float!
+fn str_to_float_slow(s: str) -> float!
     let len = s.len()
     if len == 0
         fail "empty string"
@@ -115,4 +118,148 @@ fn str_to_float(s: str) -> float!
     end
     if neg return val * -1.0 end
     return val
+end
+
+-- accurate float parsing (handles exponents like "1e-3")
+fn str_to_float(s: str) -> float!
+    if not kol_str_is_float(s)
+        fail "invalid float"
+    end
+    return kol_str_to_float(s)
+end
+
+fn is_int_str(s: str) -> bool
+    let r = str_to_int(s) or -999999999999
+    if r != -999999999999 return true end
+    return s == "-999999999999"
+end
+
+fn is_float_str(s: str) -> bool
+    return kol_str_is_float(s)
+end
+
+fn str_to_int_or(s: str, fallback: int) -> int
+    return str_to_int(s) or fallback
+end
+
+fn str_to_float_or(s: str, fallback: float) -> float
+    return str_to_float(s) or fallback
+end
+
+fn str_to_bool(s: str) -> bool!
+    let l: str = s.trim().lower()
+    if l == "true" return true end
+    if l == "yes" return true end
+    if l == "1" return true end
+    if l == "false" return false end
+    if l == "no" return false end
+    if l == "0" return false end
+    fail "invalid bool"
+end
+
+fn digit_char(d: int) -> str
+    let digits = "0123456789abcdefghijklmnopqrstuvwxyz"
+    return digits.slice(d, d + 1)
+end
+
+-- integer in base 2..36, e.g. int_to_base(255, 16) == "ff"
+fn int_to_base(n: int, base: int) -> str
+    if base < 2 return "" end
+    if base > 36 return "" end
+    if n == 0 return "0" end
+    mut x = n
+    mut neg = false
+    if x < 0
+        neg = true
+        x = x * -1
+    end
+    mut out = ""
+    while x > 0
+        out = digit_char(x mod base) + out
+        x = x / base
+    end
+    if neg
+        out = "-" + out
+    end
+    return out
+end
+
+fn int_to_hex(n: int) -> str
+    return int_to_base(n, 16)
+end
+
+fn int_to_bin(n: int) -> str
+    return int_to_base(n, 2)
+end
+
+fn int_to_oct(n: int) -> str
+    return int_to_base(n, 8)
+end
+
+fn digit_value(c: str) -> int
+    let digits = "0123456789abcdefghijklmnopqrstuvwxyz"
+    return kol_str_find(digits, c.lower(), 0)
+end
+
+fn str_to_int_base(s: str, base: int) -> int!
+    if s.len() == 0
+        fail "empty string"
+    end
+    mut neg = false
+    mut i = 0
+    if s.slice(0, 1) == "-"
+        neg = true
+        i = 1
+    end
+    if i >= s.len()
+        fail "no digits"
+    end
+    mut val = 0
+    while i < s.len()
+        let d = digit_value(s.slice(i, i + 1))
+        if d < 0
+            fail "invalid digit"
+        end
+        if d >= base
+            fail "invalid digit"
+        end
+        val = val * base + d
+        i = i + 1
+    end
+    if neg return val * -1 end
+    return val
+end
+
+fn hex_to_int(s: str) -> int!
+    let ok = str_to_int_base(s, 16) or -1
+    if ok < 0 and not s.starts_with("-")
+        fail "invalid number"
+    end
+    return ok
+end
+
+fn bin_to_int(s: str) -> int!
+    let ok = str_to_int_base(s, 2) or -1
+    if ok < 0 and not s.starts_with("-")
+        fail "invalid number"
+    end
+    return ok
+end
+
+fn to_roman(n: int) -> str
+    if n <= 0 return "" end
+    if n >= 4000 return "" end
+    let values = [1000, 900, 500, 400, 100, 90, 50, 40, 10, 9, 5, 4, 1]
+    let syms = ["M", "CM", "D", "CD", "C", "XC", "L", "XL", "X", "IX", "V", "IV", "I"]
+    mut x = n
+    mut out = ""
+    mut i = 0
+    while i < 13
+        while x >= values[i]
+            out = out + syms[i]
+            x = x - values[i]
+        end
+        i = i + 1
+    end
+    return out
 end

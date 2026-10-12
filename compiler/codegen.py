@@ -25,6 +25,9 @@ class Codegen:
         self.lambda_count = 0
         self.var_types: Dict[str, str] = {}
         self.func_ret_types: Dict[str, str] = {}
+        self.fallible_fns: set = set()
+        self.cur_fn_fallible: bool = False
+        self.list_type_hint: Optional[str] = None
         self.struct_fields: Dict[str, List[tuple]] = {}
         self.nested_type_registry: Dict[str, str] = {}
         self.type_impl_methods: Dict[str, Dict[str, str]] = {}
@@ -346,11 +349,13 @@ class Codegen:
                 else:
                     if decl.return_type:
                         rt_name = decl.return_type.name
+                        if decl.return_type.is_fallible:
+                            self.fallible_fns.add(decl.name)
                         if decl.return_type.is_optional:
                             if rt_name == "str": self.func_ret_types[decl.name] = "KolOptStr"
                             elif rt_name == "float": self.func_ret_types[decl.name] = "KolOptFloat"
                             else: self.func_ret_types[decl.name] = "KolOptInt"
-                        elif rt_name in self.HANDLE_NAMES:
+                        elif rt_name in self.HANDLE_NAMES or rt_name == "list":
                             self.func_ret_types[decl.name] = self._tkey(decl.return_type)
                         else:
                             self.func_ret_types[decl.name] = rt_name
@@ -504,11 +509,13 @@ class Codegen:
                 else:
                     if decl.return_type:
                         rt_name = decl.return_type.name
+                        if decl.return_type.is_fallible:
+                            self.fallible_fns.add(decl.name)
                         if decl.return_type.is_optional:
                             if rt_name == "str": self.func_ret_types[decl.name] = "KolOptStr"
                             elif rt_name == "float": self.func_ret_types[decl.name] = "KolOptFloat"
                             else: self.func_ret_types[decl.name] = "KolOptInt"
-                        elif rt_name in self.HANDLE_NAMES:
+                        elif rt_name in self.HANDLE_NAMES or rt_name == "list":
                             self.func_ret_types[decl.name] = self._tkey(decl.return_type)
                         else:
                             self.func_ret_types[decl.name] = rt_name
@@ -619,6 +626,35 @@ class Codegen:
                     target_safe = self._safe_c_name(stmt.target.name)
                     self._emit(f"kol_str_append(&{target_safe}, {right_val});")
                     return
+            if (isinstance(stmt.target, Ident) and stmt.op == "="
+                    and self.var_types.get(stmt.target.name, "").startswith("list")
+                    and self._is_local_var(stmt.target.name)):
+                # reassigning an array: build the new value, free the old one, move in
+                tkey = self.var_types[stmt.target.name]
+                tname_c = self._safe_c_name(stmt.target.name)
+                if isinstance(stmt.value, ListExpr) and not stmt.value.elements:
+                    self.list_type_hint = tkey
+                new_c = self._gen_expr(stmt.value)
+                self.list_type_hint = None
+                if self._is_borrowed(stmt.value):
+                    new_c = self._array_clone_expr(new_c, tkey)
+                tmp_arr = self._temp_var("assign_arr")
+                self._emit(f"kol_array_t {tmp_arr} = {new_c};")
+                self._emit(self._array_free_stmt(tname_c, tkey))
+                self._emit(f"{tname_c} = {tmp_arr};")
+                return
+            if (isinstance(stmt.target, IndexExpr) and stmt.op == "="
+                    and self._infer_expr_type(stmt.target.target) == "list_str"):
+                arr_c = self._gen_expr(stmt.target.target)
+                idx_c = self._gen_expr(stmt.target.index)
+                new_c = self._gen_expr(stmt.value)
+                tmp_s = self._temp_var("set_str")
+                self._emit(f"KolStr {tmp_s} = {new_c};")
+                if self._is_borrowed(stmt.value):
+                    self._emit(f"kol_arc_retain_str({tmp_s});")
+                line_no = stmt.location.line if stmt.location else 0
+                self._emit(f'kol_array_set_str(&{arr_c}, (size_t)({idx_c}), {tmp_s}, "{self.filename}", {line_no});')
+                return
             target = self._gen_expr(stmt.target)
             val = self._gen_expr(stmt.value)
             if isinstance(stmt.target, Ident) and self.var_types.get(stmt.target.name) == "str":
@@ -828,6 +864,9 @@ class Codegen:
                 elif list_type == "list_bool":
                     elem_c_type = "bool"
                     elem_type_key = "bool"
+                elif list_type == "list_int":
+                    elem_c_type = "int64_t"
+                    elem_type_key = "int"
                 elif list_type.startswith("list_"):
                     elem_type_key = list_type[5:]
                     elem_c_type = self._ctype_of_key(elem_type_key)
@@ -889,7 +928,14 @@ class Codegen:
 
         elif isinstance(stmt, ReturnStmt):
             self._emit_defers()
-            if stmt.value:
+            if (stmt.value and current_fn_fallible and isinstance(stmt.value, CallExpr)
+                    and isinstance(stmt.value.callee, Ident)
+                    and stmt.value.callee.name in self.fallible_fns):
+                # `return other_fallible(...)` forwards the whole result
+                fwd = self._gen_expr(stmt.value)
+                self._emit_all_active_scope_cleanups()
+                self._emit(f"return {fwd};")
+            elif stmt.value:
                 val = self._gen_expr(stmt.value)
                 ret_type_c = "int64_t"
                 t_inf = self._infer_expr_type(stmt.value)
@@ -902,10 +948,16 @@ class Codegen:
                 elif t_inf in self.struct_fields or t_inf in self.enum_defs: ret_type_c = t_inf
 
                 ret_var = stmt.value.name if isinstance(stmt.value, Ident) else None
+                if t_inf.startswith("list") and self._is_borrowed(stmt.value):
+                    is_local = isinstance(stmt.value, Ident) and self._is_local_var(stmt.value.name)
+                    if not is_local:
+                        # the caller owns parameters / elements: return our own copy
+                        val = self._array_clone_expr(val, t_inf)
                 self._emit(f"{ret_type_c} _kol_ret_val = {val};")
                 self._emit_all_active_scope_cleanups(skip_var=ret_var)
                 if current_fn_fallible:
-                    if t_inf == "str": self._emit("return kol_result_ok_str(_kol_ret_val);")
+                    if t_inf.startswith("list"): self._emit("return kol_result_ok_arr(_kol_ret_val);")
+                    elif t_inf == "str": self._emit("return kol_result_ok_str(_kol_ret_val);")
                     elif t_inf == "float": self._emit("return kol_result_ok_float(_kol_ret_val);")
                     elif t_inf == "bool": self._emit("return kol_result_ok_bool(_kol_ret_val);")
                     else: self._emit("return kol_result_ok_int(_kol_ret_val);")
@@ -1149,6 +1201,7 @@ class Codegen:
                     elif type_key == "float": type_str = "double"
                     elif type_key == "bool": type_str = "bool"
                     elif type_key == "int": type_str = "int64_t"
+                    elif type_key.startswith("list"): type_str = "kol_array_t"
                     else: type_str = type_key
                 elif fn_name in self.struct_fields:
                     type_key = fn_name
@@ -1170,6 +1223,7 @@ class Codegen:
                     elif type_key == "float": type_str = "double"
                     elif type_key == "bool": type_str = "bool"
                     elif type_key == "int": type_str = "int64_t"
+                    elif type_key.startswith("list"): type_str = "kol_array_t"
                     else: type_str = type_key
             elif isinstance(decl.value, ChannelExpr):
                 type_str = "KolChannel*"
@@ -1205,15 +1259,20 @@ class Codegen:
                     val_c = self._gen_expr(arg_expr)
                     self._emit(f"{safe_decl_name}.{arg_name} = {val_c};")
             else:
+                if isinstance(decl.value, ListExpr) and not decl.value.elements and type_key.startswith("list"):
+                    self.list_type_hint = type_key
                 val_str = self._gen_expr(decl.value)
+                self.list_type_hint = None
+                if type_key.startswith("list") and self._is_borrowed(decl.value):
+                    # value semantics: `let b = a` gets its own copy of the array
+                    val_str = self._array_clone_expr(val_str, type_key)
                 self._emit(f"{type_str} {safe_decl_name} = {val_str};")
                 if type_key == "str" and isinstance(decl.value, Ident):
                     self._emit(f"kol_arc_retain_str({safe_decl_name});")
                 elif self._is_handle_key(type_key) and self._is_borrowed_expr(decl.value):
                     self._emit(f"kol_obj_retain({safe_decl_name});")
-                elif type_key.startswith("list_") and self._is_handle_key(type_key[5:]) and isinstance(decl.value, Ident):
-                    self._emit(f"{safe_decl_name} = kol_array_clone(&{safe_decl_name});")
-                    self._emit(f"kol_array_retain_objs(&{safe_decl_name});")
+        elif type_str == "kol_array_t":
+            self._emit(f"{type_str} {safe_decl_name} = {{0}};")
         else:
             self._emit(f"{type_str} {safe_decl_name};")
 
@@ -1243,6 +1302,8 @@ class Codegen:
             else: ret_type = rt
 
         c_fn_name = "main" if is_main else f"_kol_fn_{decl.name}"
+        saved_fn_fallible = self.cur_fn_fallible
+        self.cur_fn_fallible = is_fallible
 
         params_code = []
         for p in decl.params:
@@ -1307,6 +1368,7 @@ class Codegen:
         if is_main:
             self._emit("return 0;")
         self.defer_stack.pop()
+        self.cur_fn_fallible = saved_fn_fallible
 
         self.indent_level -= 1
         self._emit("}")
@@ -1732,8 +1794,7 @@ class Codegen:
             return str(expr.value)
 
         if isinstance(expr, StrLit):
-            escaped = expr.value.replace('"', '\\"').replace('\n', '\\n')
-            return f'kol_str_create("{escaped}")'
+            return f'kol_str_create("{self._c_escape(expr.value)}")'
 
         if isinstance(expr, BoolLit):
             return "true" if expr.value else "false"
@@ -1772,7 +1833,7 @@ class Codegen:
             args = []
             for part in expr.parts:
                 if isinstance(part, str):
-                    fmt_parts.append(part.replace('%', '%%'))
+                    fmt_parts.append(self._c_escape(part).replace('%', '%%'))
                 else:
                     sub_expr = self._gen_expr(part)
                     t = self._infer_expr_type(part)
@@ -1806,11 +1867,15 @@ class Codegen:
                 tmp_l = self._temp_var("str_l")
                 tmp_r = self._temp_var("str_r")
                 res_v = self._temp_var("str_res")
+                # Operands that name existing storage (variables, elements, fields)
+                # are borrowed: retain them so the release below nets to zero.
+                # Everything else is a fresh temporary we own and must release.
+                borrowed = (Ident, IndexExpr, FieldAccess)
                 self._emit(f"KolStr {tmp_l} = {left};")
-                if isinstance(expr.left, Ident):
+                if isinstance(expr.left, borrowed):
                     self._emit(f"kol_arc_retain_str({tmp_l});")
                 self._emit(f"KolStr {tmp_r} = {right};")
-                if isinstance(expr.right, Ident):
+                if isinstance(expr.right, borrowed):
                     self._emit(f"kol_arc_retain_str({tmp_r});")
                 self._emit(f"KolStr {res_v} = kol_str_concat({tmp_l}, {tmp_r});")
                 # concat appends in place when it can, returning the left operand's buffer:
@@ -1822,6 +1887,8 @@ class Codegen:
                 return f"kol_str_eq({left}, {right})"
             if is_str_cmp and op == "!=":
                 return f"kol_str_neq({left}, {right})"
+            if l_type == "str" and r_type == "str" and op in ("<", ">", "<=", ">="):
+                return f"(kol_str_cmp({left}, {right}) {op} 0)"
             if op == "and": op = "&&"
             elif op == "or": op = "||"
             elif op == "mod": op = "%"
@@ -1838,6 +1905,25 @@ class Codegen:
             op = expr.op
             if op == "not": op = "!"
             return f"({op}{operand})"
+
+        if isinstance(expr, TryExpr):
+            inner = expr.expr
+            if not self.cur_fn_fallible:
+                raise KolError("'try' / '?' can only be used inside a function that returns 'T!'", expr.location)
+            inner_c = self._gen_expr(inner)
+            res_var = self._temp_var("try")
+            self._emit(f"KolResult {res_var} = {inner_c};")
+            self._emit(f"if (!{res_var}.ok) {{")
+            self.indent_level += 1
+            self._emit_defers()
+            self._emit(f"return {res_var};")
+            self.indent_level -= 1
+            self._emit("}")
+            return self._result_unwrap(res_var, inner)
+
+        if isinstance(expr, OrExpr) and self._is_logical_or(expr):
+            # `a or b` on plain booleans is logical OR (short-circuit)
+            return f"({self._gen_expr(expr.expr)} || {self._gen_expr(expr.default_val)})"
 
         if isinstance(expr, OrExpr):
             e_str = self._gen_expr(expr.expr)
@@ -1873,6 +1959,8 @@ class Codegen:
                     val_field = "val_str"
                 elif self._infer_expr_type(expr.default_val) == "bool":
                     val_field = "val_bool"
+                if self._infer_expr_type(expr.expr).startswith("list"):
+                    return f"({res_var}.ok ? kol_result_take_arr({res_var}) : {d_str})"
                 return f"({res_var}.ok ? {res_var}.{val_field} : {d_str})"
 
         if isinstance(expr, FieldAccess):
@@ -1909,6 +1997,14 @@ class Codegen:
             arr_var = self._temp_var("arr")
             elem_type_c = "int64_t"
             elem_size = "sizeof(int64_t)"
+            hint = self.list_type_hint
+            self.list_type_hint = None
+            if not expr.elements and hint:
+                if hint == "list_str": elem_type_c, elem_size = "KolStr", "sizeof(KolStr)"
+                elif hint == "list_float": elem_type_c, elem_size = "double", "sizeof(double)"
+                elif hint == "list_bool": elem_type_c, elem_size = "bool", "sizeof(bool)"
+                elif hint.startswith("list_") and (hint[5:] in self.struct_fields or hint[5:] in self.enum_defs):
+                    elem_type_c, elem_size = hint[5:], f"sizeof({hint[5:]})"
             if expr.elements:
                 first_t = self._infer_expr_type(expr.elements[0])
                 if first_t == "str":
@@ -1929,6 +2025,8 @@ class Codegen:
                 elem_c = self._gen_expr(elem)
                 tmp_elem = self._temp_var("elem")
                 self._emit(f"{elem_type_c} {tmp_elem} = {elem_c};")
+                if elem_type_c == "KolStr" and self._is_borrowed(elem):
+                    self._emit(f"kol_arc_retain_str({tmp_elem});")
                 self._emit(f"kol_array_push(&{arr_var}, &{tmp_elem});")
             return arr_var
 
@@ -2126,6 +2224,10 @@ class Codegen:
                 elif m == "reverse":
                     return f"kol_array_reverse(&{obj})"
                 elif m == "pop":
+                    if obj_t == "list_str": return f"kol_array_pop_str(&{obj})"
+                    if obj_t == "list_float": return f"kol_array_pop_float(&{obj})"
+                    if obj_t == "list_bool": return f"kol_array_pop_bool(&{obj})"
+                    if obj_t == "list_int" or obj_t == "list": return f"kol_array_pop_int(&{obj})"
                     return f"kol_array_pop(&{obj})"
                 elif m == "contains":
                     if obj_t == "list_str":
@@ -2141,6 +2243,8 @@ class Codegen:
                     elif obj_t == "list_int": elem_t = "int64_t"
                     elif obj_t.startswith("list_"): elem_t = self._ctype_of_key(obj_t[5:])
                     self._emit(f"{elem_t} {tmp_v} = {arg_strs[0]};")
+                    if obj_t == "list_str" and self._is_borrowed(expr.args[0]):
+                        self._emit(f"kol_arc_retain_str({tmp_v});")
                     return f"kol_array_push(&{obj}, &{tmp_v})"
 
             if obj_t in self.struct_fields or (obj_t in self.type_impl_methods and expr.method_name in self.type_impl_methods[obj_t]):
@@ -2155,6 +2259,63 @@ class Codegen:
             return f"_kol_method_{expr.method_name}({', '.join(args_all)})"
 
         return "0"
+
+    @staticmethod
+    def _c_escape(text: str) -> str:
+        """Escape text for use inside a C string literal."""
+        out = []
+        for ch in text:
+            if ch == '\\': out.append('\\\\')
+            elif ch == '"': out.append('\\"')
+            elif ch == '\n': out.append('\\n')
+            elif ch == '\r': out.append('\\r')
+            elif ch == '\t': out.append('\\t')
+            elif ch == '?': out.append('\\?')      # avoid trigraphs
+            elif ord(ch) < 32 or ord(ch) == 127: out.append('\\%03o' % ord(ch))
+            else: out.append(ch)
+        return ''.join(out)
+
+    BORROWED_EXPRS = (Ident, IndexExpr, FieldAccess)
+
+    def _is_borrowed(self, expr) -> bool:
+        """True when `expr` names storage that something else still owns."""
+        return isinstance(expr, self.BORROWED_EXPRS)
+
+    def _is_local_var(self, name: str) -> bool:
+        return any(n == name for scope in self.scope_stack for (n, _t) in scope)
+
+    def _array_clone_expr(self, arr_c: str, type_key: str) -> str:
+        if type_key.startswith("list_") and self._is_handle_key(type_key[5:]):
+            return f"kol_array_clone_objs(&{arr_c})"
+        if type_key == "list_str":
+            return f"kol_array_clone_strs(&{arr_c})"
+        return f"kol_array_clone(&{arr_c})"
+
+    def _array_free_stmt(self, name_c: str, type_key: str) -> str:
+        return " ".join(self._release_lines(name_c, type_key))
+
+    def _result_unwrap(self, res_var: str, call_expr) -> str:
+        """C expression that extracts the success value of a KolResult."""
+        t = self._infer_expr_type(call_expr)
+        if t.startswith("list"): return f"kol_result_take_arr({res_var})"
+        if t == "float": return f"{res_var}.val_float"
+        if t == "str": return f"{res_var}.val_str"
+        if t == "bool": return f"{res_var}.val_bool"
+        return f"{res_var}.val_int"
+
+    def _is_logical_or(self, expr) -> bool:
+        """`x or y` is a logical OR when x is a plain bool value.  It stays the
+        optional/fallible default operator when x is a call that can fail or be
+        none (or anything that is not a bool)."""
+        left = expr.expr
+        if isinstance(left, CallExpr) and isinstance(left.callee, Ident):
+            fn = left.callee.name
+            if fn in self.fallible_fns:
+                return False
+            ret = self.func_ret_types.get(fn, "")
+            if ret.startswith("KolOpt") or ret.endswith("?"):
+                return False
+        return self._infer_expr_type(left) == "bool"
 
     def _infer_expr_type(self, expr: ASTNode) -> str:
         if isinstance(expr, IndexExpr):
@@ -2249,7 +2410,12 @@ class Codegen:
                     return mangled
         if isinstance(expr, MapExpr):
             return "KolMap_si"
+        if isinstance(expr, TryExpr):
+            return self._infer_expr_type(expr.expr)
         if isinstance(expr, OrExpr):
+            inner = expr.expr
+            if isinstance(inner, CallExpr) and isinstance(inner.callee, Ident) and inner.callee.name in self.func_ret_types:
+                return self._infer_expr_type(inner)
             return self._infer_expr_type(expr.default_val)
         if isinstance(expr, MethodCallExpr):
             if self.in_system_block and isinstance(expr.object, Ident) and expr.object.name == "mem":
@@ -2289,6 +2455,8 @@ class Codegen:
                     "len": "int", "pop": "int", "contains": "bool",
                     "push": "void", "reverse": "void"
                 }
+                if expr.method_name == "pop" and obj_t.startswith("list_"):
+                    return obj_t[5:] if obj_t[5:] in ("str", "float", "bool") else "int"
                 if expr.method_name in list_method_types:
                     return list_method_types[expr.method_name]
             if expr.method_name in ["upper", "lower", "trim", "greet"]:

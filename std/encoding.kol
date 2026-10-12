@@ -1,0 +1,175 @@
+-- std/encoding.kol : hex, base64 and URL (percent) encoding for byte strings
+
+use std.str
+
+fn hex_encode(s: str) -> str
+    let digits = "0123456789abcdef"
+    mut out = ""
+    mut i = 0
+    while i < s.len()
+        let b = kol_char_code_at(s, i)
+        out = out + digits.slice(b / 16, b / 16 + 1)
+        out = out + digits.slice(b mod 16, b mod 16 + 1)
+        i = i + 1
+    end
+    return out
+end
+
+fn hex_decode(s: str) -> str!
+    if s.len() mod 2 != 0
+        fail "odd length hex string"
+    end
+    let digits = "0123456789abcdef"
+    let low: str = s.lower()
+    mut out = ""
+    mut i = 0
+    while i < low.len()
+        let hi = kol_str_find(digits, low.slice(i, i + 1), 0)
+        let lo = kol_str_find(digits, low.slice(i + 1, i + 2), 0)
+        if hi < 0
+            fail "invalid hex digit"
+        end
+        if lo < 0
+            fail "invalid hex digit"
+        end
+        out = out + kol_chr(hi * 16 + lo)
+        i = i + 2
+    end
+    return out
+end
+
+fn base64_encode(s: str) -> str
+    let table = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+    let n = s.len()
+    mut out = ""
+    mut i = 0
+    while i < n
+        let b0 = kol_char_code_at(s, i)
+        mut b1 = 0
+        mut b2 = 0
+        if i + 1 < n
+            b1 = kol_char_code_at(s, i + 1)
+        end
+        if i + 2 < n
+            b2 = kol_char_code_at(s, i + 2)
+        end
+        let triple = b0 * 65536 + b1 * 256 + b2
+        let c0 = triple / 262144
+        let c1 = (triple / 4096) mod 64
+        let c2 = (triple / 64) mod 64
+        let c3 = triple mod 64
+        out = out + table.slice(c0, c0 + 1)
+        out = out + table.slice(c1, c1 + 1)
+        if i + 1 < n
+            out = out + table.slice(c2, c2 + 1)
+        else
+            out = out + "="
+        end
+        if i + 2 < n
+            out = out + table.slice(c3, c3 + 1)
+        else
+            out = out + "="
+        end
+        i = i + 3
+    end
+    return out
+end
+
+fn base64_decode(s: str) -> str!
+    let table = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+    let n = s.len()
+    if n mod 4 != 0
+        fail "invalid base64 length"
+    end
+    mut out = ""
+    mut i = 0
+    while i < n
+        mut pad = 0
+        mut acc = 0
+        mut k = 0
+        while k < 4
+            let ch: str = s.slice(i + k, i + k + 1)
+            if ch == "="
+                pad = pad + 1
+                acc = acc * 64
+            else
+                let v = kol_str_find(table, ch, 0)
+                if v < 0
+                    fail "invalid base64 character"
+                end
+                acc = acc * 64 + v
+            end
+            k = k + 1
+        end
+        out = out + kol_chr(acc / 65536)
+        if pad < 2
+            out = out + kol_chr((acc / 256) mod 256)
+        end
+        if pad < 1
+            out = out + kol_chr(acc mod 256)
+        end
+        i = i + 4
+    end
+    return out
+end
+
+fn url_is_safe(c: str) -> bool
+    if is_alnum_char(c) return true end
+    if c == "-" return true end
+    if c == "_" return true end
+    if c == "." return true end
+    if c == "~" return true end
+    return false
+end
+
+-- percent-encode everything except letters, digits and - _ . ~
+fn url_encode(s: str) -> str
+    let digits = "0123456789ABCDEF"
+    mut out = ""
+    mut i = 0
+    while i < s.len()
+        let c: str = s.slice(i, i + 1)
+        if url_is_safe(c)
+            out = out + c
+        else
+            let b = kol_char_code_at(s, i)
+            out = out + "%"
+            out = out + digits.slice(b / 16, b / 16 + 1)
+            out = out + digits.slice(b mod 16, b mod 16 + 1)
+        end
+        i = i + 1
+    end
+    return out
+end
+
+fn url_decode(s: str) -> str!
+    let digits = "0123456789ABCDEF"
+    let up: str = s
+    mut out = ""
+    mut i = 0
+    while i < up.len()
+        let c: str = up.slice(i, i + 1)
+        if c == "%"
+            if i + 2 >= up.len() + 0 and i + 2 > up.len() - 1
+                fail "truncated percent escape"
+            end
+            let hi = kol_str_find(digits, up.slice(i + 1, i + 2).upper(), 0)
+            let lo = kol_str_find(digits, up.slice(i + 2, i + 3).upper(), 0)
+            if hi < 0
+                fail "invalid percent escape"
+            end
+            if lo < 0
+                fail "invalid percent escape"
+            end
+            out = out + kol_chr(hi * 16 + lo)
+            i = i + 3
+        elif c == "+"
+            out = out + " "
+            i = i + 1
+        else
+            out = out + c
+            i = i + 1
+        end
+    end
+    return out
+end
