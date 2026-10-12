@@ -1,0 +1,31 @@
+fn mk(n: int) -> [str]
+    mut r: [str] = ["x"]
+    r.pop()
+    r.push("hello")
+    r.push("world")
+    return r
+end
+fn nums(n: int) -> [int]!
+    if n < 0 fail "negative" end
+    mut r: [int] = []
+    mut i = 0
+    while i < n
+        r.push(i * 10)
+        i = i + 1
+    end
+    return r
+end
+fn use_it(n: int) -> int!
+    let a = nums(n)?
+    return a.len() + a[a.len() - 1]
+end
+let m = mk(1)
+print(m[0])
+print(m.len())
+let a: [int] = nums(4) or []
+print(a.len())
+print(a[3])
+let b: [int] = nums(-1) or [7]
+print(b[0])
+print(use_it(3) or -1)
+print(use_it(-3) or -1)

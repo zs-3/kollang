@@ -1,0 +1,23 @@
+use std.core
+use std.math
+use std.str
+use std.array
+use std.list
+use std.convert
+use std.format
+use std.stats
+use std.random
+use std.bits
+use std.hash
+use std.io
+use std.os
+use std.time
+use std.path
+use std.encoding
+use std.text
+
+assert_eq_int(sum_list([1, 2, 3]), 6, "list")
+assert_eq_str(format_thousands(1000), "1,000", "format")
+assert_eq_str(path_join("a", "b"), "a/b", "path")
+assert_eq_int(popcount(7), 3, "bits")
+print("ALL MODULES TESTS PASSED")

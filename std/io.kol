@@ -2,3 +2,135 @@
 fn print_str(s: str)
     print(s)
 end
+
+use std.str
+use std.array
+
+extern fn kol_write(s: str) from "kol_runtime"
+extern fn kol_ewrite(s: str) from "kol_runtime"
+extern fn kol_eprint_line(s: str) from "kol_runtime"
+extern fn kol_flush() from "kol_runtime"
+extern fn kol_read_line() -> str from "kol_runtime"
+extern fn kol_stdin_eof() -> bool from "kol_runtime"
+extern fn kol_file_exists(path: str) -> bool from "kol_runtime"
+extern fn kol_dir_exists(path: str) -> bool from "kol_runtime"
+extern fn kol_file_size(path: str) -> int from "kol_runtime"
+extern fn kol_file_read(path: str) -> str from "kol_runtime"
+extern fn kol_file_write(path: str, data: str) -> bool from "kol_runtime"
+extern fn kol_file_append(path: str, data: str) -> bool from "kol_runtime"
+extern fn kol_file_remove(path: str) -> bool from "kol_runtime"
+extern fn kol_file_rename(src: str, dst: str) -> bool from "kol_runtime"
+extern fn kol_dir_make(path: str) -> bool from "kol_runtime"
+
+-- ---------------------------------------------------------------------------
+-- console
+-- ---------------------------------------------------------------------------
+
+-- print without a trailing newline
+fn write_str(s: str)
+    kol_write(s)
+end
+
+-- print a line to standard error
+fn eprint_str(s: str)
+    kol_eprint_line(s)
+end
+
+fn flush_out()
+    kol_flush()
+end
+
+-- read one line from standard input (no newline); check stdin_eof() after
+fn read_line() -> str
+    return kol_read_line()
+end
+
+fn stdin_eof() -> bool
+    return kol_stdin_eof()
+end
+
+-- show a prompt, then read a line
+fn prompt(message: str) -> str
+    kol_write(message)
+    kol_flush()
+    return kol_read_line()
+end
+
+-- every remaining line of standard input
+fn read_all_lines() -> [str]
+    mut out: [str] = str_array_empty()
+    mut line = kol_read_line()
+    while not kol_stdin_eof()
+        out.push(line)
+        line = kol_read_line()
+    end
+    return out
+end
+
+-- ---------------------------------------------------------------------------
+-- files
+-- ---------------------------------------------------------------------------
+fn file_exists(path: str) -> bool
+    return kol_file_exists(path)
+end
+
+fn dir_exists(path: str) -> bool
+    return kol_dir_exists(path)
+end
+
+-- size in bytes, or -1 when the file does not exist
+fn file_size(path: str) -> int
+    return kol_file_size(path)
+end
+
+fn read_file(path: str) -> str!
+    if not kol_file_exists(path)
+        fail "file not found"
+    end
+    return kol_file_read(path)
+end
+
+-- lines of a file; an empty array when the file does not exist
+-- (check file_exists first if you need to tell the two cases apart)
+fn read_file_lines(path: str) -> [str]
+    if not kol_file_exists(path)
+        return str_array_empty()
+    end
+    let text = kol_file_read(path)
+    let lines: [str] = str_lines(text)
+    return lines
+end
+
+fn write_file(path: str, data: str) -> bool
+    return kol_file_write(path, data)
+end
+
+fn append_file(path: str, data: str) -> bool
+    return kol_file_append(path, data)
+end
+
+fn write_lines(path: str, lines: [str]) -> bool
+    mut text = ""
+    for line in lines
+        text = text + line
+        text = text + "\n"
+    end
+    return kol_file_write(path, text)
+end
+
+fn remove_file(path: str) -> bool
+    return kol_file_remove(path)
+end
+
+fn rename_file(src: str, dst: str) -> bool
+    return kol_file_rename(src, dst)
+end
+
+fn make_dir(path: str) -> bool
+    return kol_dir_make(path)
+end
+
+fn copy_file(src: str, dst: str) -> bool
+    if not kol_file_exists(src) return false end
+    return kol_file_write(dst, kol_file_read(src))
+end

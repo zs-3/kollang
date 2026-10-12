@@ -1,0 +1,36 @@
+fn p(s: str) -> int!
+    if s == "bad" fail "bad input" end
+    return 5
+end
+fn q(s: str) -> int!
+    let v = try p(s)
+    return v + 1
+end
+print(q("ok") or -1)
+print(q("bad") or -1)
+fn r(s: str) -> float!
+    let v = p(s)?
+    let w = try p("ok")
+    return v * 1.5 + w
+end
+print(r("ok") or -1.0)
+print(r("bad") or -1.0)
+fn nested(s: str) -> int!
+    return p(s)?  + 1
+end
+print(nested("ok") or 0)
+print(nested("bad") or 0)
+fn base2(s: str) -> int!
+    if s == "bad" fail "bad" end
+    return 7
+end
+fn wrap_a(s: str) -> int!
+    return base2(s)
+end
+fn wrap_b(s: str) -> int!
+    let tmp = "x{s}"
+    return base2(s)
+end
+print(wrap_a("ok") or -1)
+print(wrap_a("bad") or -1)
+print(wrap_b("ok") or -1)

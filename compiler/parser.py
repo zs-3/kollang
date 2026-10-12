@@ -37,7 +37,13 @@ class Parser:
             self.pos += 1
         return token
 
+    # Contextual keywords: keywords only in their own syntax (`extern ... from "x"`,
+    # `for ... step n`); anywhere a plain name is expected they are ordinary names.
+    SOFT_KEYWORDS = (TokenType.FROM, TokenType.STEP)
+
     def _expect(self, type_: TokenType, msg: str) -> Token:
+        if type_ == TokenType.IDENT and self._curr().type in self.SOFT_KEYWORDS:
+            return self._advance()
         if self._check(type_):
             return self._advance()
         raise KolError(f"Expected {type_.name} ({msg}), got {self._curr().type.name} ('{self._curr().value}')", self._curr().location)
@@ -789,7 +795,7 @@ class Parser:
     def _parse_or_catch(self) -> ASTNode:
         expr = self._parse_and()
         while True:
-            if self._match(TokenType.OR):
+            if self._match(TokenType.OR, TokenType.PIPE_PIPE):
                 loc = self._curr().location
                 right = self._parse_and()
                 expr = OrExpr(expr=expr, default_val=right, location=loc)
@@ -896,6 +902,9 @@ class Parser:
                 self._expect(TokenType.RPAREN, ")")
                 expr = CallExpr(callee=expr, args=args, named_args=named_args, location=loc)
 
+            elif self._match(TokenType.QUESTION):
+                expr = TryExpr(expr=expr, location=loc)
+
             elif self._match(TokenType.DOT):
                 member = self._expect(TokenType.IDENT, "field or method name").value
                 if self._match(TokenType.LPAREN):
@@ -986,7 +995,7 @@ class Parser:
             self._expect(TokenType.RPAREN, ")")
             return ChannelExpr(elem_type=elem_t, capacity=capacity, location=loc)
 
-        if self._check(TokenType.IDENT):
+        if self._check(TokenType.IDENT) or self._curr().type in self.SOFT_KEYWORDS:
             name = self._advance().value
             return Ident(name=name, location=loc)
 

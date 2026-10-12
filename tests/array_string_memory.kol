@@ -1,0 +1,51 @@
+fn collect(n: int) -> [str]
+    mut out: [str] = []
+    mut i = 0
+    while i < n
+        let item = "item-number-with-a-long-name-{i}"
+        out.push(item)
+        i = i + 1
+    end
+    return out
+end
+fn ident(x: [str]) -> [str]
+    return x
+end
+fn grow(xs: [int]) -> [int]
+    mut ys = xs
+    ys.push(100)
+    return ys
+end
+let a: [str] = collect(3)
+print(a.len())
+print(a[2])
+let b: [str] = ident(a)
+mut c: [str] = b
+c[0] = "replaced-element-that-is-long-enough-to-be-heap"
+print(a[0])
+print(c[0])
+let w = "a-fairly-long-word-for-the-heap-alloc-test"
+mut d: [str] = []
+d.push(w)
+d.push(w)
+print(d.len())
+mut f: [float] = []
+f.push(1.5)
+f.push(2.5)
+print(f[1])
+let last = d.pop()
+print(last)
+print(d.len())
+mut i = 0
+mut acc: [int] = [1]
+while i < 3
+    acc = grow(acc)
+    i = i + 1
+end
+print(acc.len())
+let e: [str] = []
+print(e.len())
+mut g: [str] = a
+g = collect(2)
+print(g.len())
+print(a.len())

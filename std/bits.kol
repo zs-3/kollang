@@ -1,0 +1,58 @@
+-- std/bits.kol : bitwise operations on int (the language has no bit operators)
+
+extern fn kol_bit_and(a: int, b: int) -> int from "kol_runtime"
+extern fn kol_bit_or(a: int, b: int) -> int from "kol_runtime"
+extern fn kol_bit_xor(a: int, b: int) -> int from "kol_runtime"
+extern fn kol_bit_not(a: int) -> int from "kol_runtime"
+extern fn kol_bit_shl(a: int, n: int) -> int from "kol_runtime"
+extern fn kol_bit_shr(a: int, n: int) -> int from "kol_runtime"
+extern fn kol_bit_popcount(a: int) -> int from "kol_runtime"
+
+fn bit_and(a: int, b: int) -> int
+    return kol_bit_and(a, b)
+end
+
+fn bit_or(a: int, b: int) -> int
+    return kol_bit_or(a, b)
+end
+
+fn bit_xor(a: int, b: int) -> int
+    return kol_bit_xor(a, b)
+end
+
+fn bit_not(a: int) -> int
+    return kol_bit_not(a)
+end
+
+fn shift_left(a: int, n: int) -> int
+    return kol_bit_shl(a, n)
+end
+
+fn shift_right(a: int, n: int) -> int
+    return kol_bit_shr(a, n)
+end
+
+fn popcount(a: int) -> int
+    return kol_bit_popcount(a)
+end
+
+fn bit_get(a: int, i: int) -> bool
+    return kol_bit_and(kol_bit_shr(a, i), 1) == 1
+end
+
+fn bit_set(a: int, i: int) -> int
+    return kol_bit_or(a, kol_bit_shl(1, i))
+end
+
+fn bit_clear(a: int, i: int) -> int
+    return kol_bit_and(a, kol_bit_not(kol_bit_shl(1, i)))
+end
+
+fn bit_toggle(a: int, i: int) -> int
+    return kol_bit_xor(a, kol_bit_shl(1, i))
+end
+
+fn is_pow2(n: int) -> bool
+    if n <= 0 return false end
+    return kol_bit_and(n, n - 1) == 0
+end

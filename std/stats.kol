@@ -1,0 +1,146 @@
+-- std/stats.kol : descriptive statistics for [int] and [float]
+
+use std.math
+use std.array
+
+fn mean(xs: [float]) -> float!
+    if xs.len() == 0
+        fail "mean of empty array"
+    end
+    return float_array_sum(xs) / to_float(xs.len())
+end
+
+fn mean_int(xs: [int]) -> float!
+    if xs.len() == 0
+        fail "mean of empty array"
+    end
+    return to_float(sum_array(xs)) / to_float(xs.len())
+end
+
+fn median(xs: [float]) -> float!
+    let n = xs.len()
+    if n == 0
+        fail "median of empty array"
+    end
+    let sorted: [float] = sort_float_array(xs)
+    if n mod 2 == 1
+        return sorted[n / 2]
+    end
+    return (sorted[n / 2 - 1] + sorted[n / 2]) / 2.0
+end
+
+fn median_int(xs: [int]) -> float!
+    let n = xs.len()
+    if n == 0
+        fail "median of empty array"
+    end
+    let sorted: [int] = sort_int_array(xs)
+    if n mod 2 == 1
+        return to_float(sorted[n / 2])
+    end
+    return to_float(sorted[n / 2 - 1] + sorted[n / 2]) / 2.0
+end
+
+fn variance(xs: [float]) -> float!
+    let n = xs.len()
+    if n == 0
+        fail "variance of empty array"
+    end
+    let m = float_array_sum(xs) / to_float(n)
+    mut acc = 0.0
+    for x in xs
+        let d = x - m
+        acc = acc + d * d
+    end
+    return acc / to_float(n)
+end
+
+fn sample_variance(xs: [float]) -> float!
+    let n = xs.len()
+    if n < 2
+        fail "sample variance needs at least 2 values"
+    end
+    let m = float_array_sum(xs) / to_float(n)
+    mut acc = 0.0
+    for x in xs
+        let d = x - m
+        acc = acc + d * d
+    end
+    return acc / to_float(n - 1)
+end
+
+fn std_dev(xs: [float]) -> float!
+    if xs.len() == 0
+        fail "std_dev of empty array"
+    end
+    let v = variance(xs) or 0.0
+    return sqrt(v)
+end
+
+fn mode_int(xs: [int]) -> int!
+    if xs.len() == 0
+        fail "mode of empty array"
+    end
+    let sorted: [int] = sort_int_array(xs)
+    mut best = sorted[0]
+    mut best_count = 0
+    mut cur = sorted[0]
+    mut cur_count = 0
+    for v in sorted
+        if v == cur
+            cur_count = cur_count + 1
+        else
+            cur = v
+            cur_count = 1
+        end
+        if cur_count > best_count
+            best_count = cur_count
+            best = cur
+        end
+    end
+    return best
+end
+
+fn range_int(xs: [int]) -> int!
+    if xs.len() == 0
+        fail "range of empty array"
+    end
+    let hi = max_array(xs) or 0
+    let lo = min_array(xs) or 0
+    return hi - lo
+end
+
+-- linear-interpolated percentile, p in 0..100
+fn percentile(xs: [float], p: float) -> float!
+    let n = xs.len()
+    if n == 0
+        fail "percentile of empty array"
+    end
+    let sorted: [float] = sort_float_array(xs)
+    if n == 1
+        return sorted[0]
+    end
+    let rank = clamp_float(p, 0.0, 100.0) / 100.0 * to_float(n - 1)
+    let lo = floor_int(rank)
+    let hi = ceil_int(rank)
+    if lo == hi
+        return sorted[lo]
+    end
+    return lerp(sorted[lo], sorted[hi], rank - to_float(lo))
+end
+
+fn normalize_minmax(xs: [float]) -> [float]
+    mut out: [float] = []
+    if xs.len() == 0 return out end
+    let lo = float_array_min(xs) or 0.0
+    let hi = float_array_max(xs) or 0.0
+    let span = hi - lo
+    for x in xs
+        if span == 0.0
+            out.push(0.0)
+        else
+            out.push((x - lo) / span)
+        end
+    end
+    return out
+end

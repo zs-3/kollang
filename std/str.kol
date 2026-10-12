@@ -1,5 +1,10 @@
 -- std/str.kol
 
+extern fn kol_ord(s: str) -> int from "kol_runtime"
+extern fn kol_chr(code: int) -> str from "kol_runtime"
+extern fn kol_char_code_at(s: str, i: int) -> int from "kol_runtime"
+extern fn kol_str_find(s: str, sub: str, start: int) -> int from "kol_runtime"
+
 fn is_empty(s: str) -> bool
     return s.len() == 0
 end
@@ -66,21 +71,7 @@ fn replace_all(s: str, old_sub: str, new_sub: str) -> str
 end
 
 fn index_of(s: str, sub: str) -> int
-    let s_len = s.len()
-    let sub_len = sub.len()
-    if sub_len == 0 return 0 end
-    if sub_len > s_len return -1 end
-
-    mut i = 0
-    let limit = s_len - sub_len + 1
-    while i < limit
-        let part: str = s.slice(i, i + sub_len)
-        if part == sub
-            return i
-        end
-        i = i + 1
-    end
-    return -1
+    return kol_str_find(s, sub, 0)
 end
 
 fn last_index_of(s: str, sub: str) -> int
@@ -145,3 +136,301 @@ fn trim_end(s: str) -> str
     end
     return ""
 end
+
+-- ---------------------------------------------------------------------------
+-- characters
+-- ---------------------------------------------------------------------------
+fn char_code(c: str) -> int
+    return kol_ord(c)
+end
+
+fn char_from_code(code: int) -> str
+    return kol_chr(code)
+end
+
+fn char_at(s: str, i: int) -> str
+    if i < 0 return "" end
+    return s.slice(i, i + 1)
+end
+
+fn is_digit_char(c: str) -> bool
+    let k = kol_ord(c)
+    return k >= 48 and k <= 57
+end
+
+fn is_upper_char(c: str) -> bool
+    let k = kol_ord(c)
+    return k >= 65 and k <= 90
+end
+
+fn is_lower_char(c: str) -> bool
+    let k = kol_ord(c)
+    return k >= 97 and k <= 122
+end
+
+fn is_alpha_char(c: str) -> bool
+    let k = kol_ord(c)
+    if k >= 65 and k <= 90 return true end
+    if k >= 97 and k <= 122 return true end
+    return false
+end
+
+fn is_alnum_char(c: str) -> bool
+    if is_digit_char(c) return true end
+    return is_alpha_char(c)
+end
+
+fn is_space_char(c: str) -> bool
+    let k = kol_ord(c)
+    if k == 32 return true end
+    if k >= 9 and k <= 13 return true end
+    return false
+end
+
+fn is_punct_char(c: str) -> bool
+    let k = kol_ord(c)
+    if k < 33 return false end
+    if k > 126 return false end
+    return not is_alnum_char(c)
+end
+
+-- ---------------------------------------------------------------------------
+-- whole-string predicates
+-- ---------------------------------------------------------------------------
+fn is_blank(s: str) -> bool
+    return trim_str(s).len() == 0
+end
+
+fn is_all_digits(s: str) -> bool
+    let n = s.len()
+    if n == 0 return false end
+    mut i = 0
+    while i < n
+        if not is_digit_char(s.slice(i, i + 1)) return false end
+        i = i + 1
+    end
+    return true
+end
+
+fn is_all_alpha(s: str) -> bool
+    let n = s.len()
+    if n == 0 return false end
+    mut i = 0
+    while i < n
+        if not is_alpha_char(s.slice(i, i + 1)) return false end
+        i = i + 1
+    end
+    return true
+end
+
+fn is_all_alnum(s: str) -> bool
+    let n = s.len()
+    if n == 0 return false end
+    mut i = 0
+    while i < n
+        if not is_alnum_char(s.slice(i, i + 1)) return false end
+        i = i + 1
+    end
+    return true
+end
+
+fn is_palindrome(s: str) -> bool
+    return s == reverse_str(s)
+end
+
+-- ---------------------------------------------------------------------------
+-- searching and counting
+-- ---------------------------------------------------------------------------
+fn index_of_from(s: str, sub: str, start: int) -> int
+    return kol_str_find(s, sub, start)
+end
+
+fn count_substr(s: str, sub: str) -> int
+    if sub.len() == 0 return 0 end
+    mut count = 0
+    mut pos = kol_str_find(s, sub, 0)
+    while pos >= 0
+        count = count + 1
+        pos = kol_str_find(s, sub, pos + sub.len())
+    end
+    return count
+end
+
+fn str_compare(a: str, b: str) -> int
+    let la = a.len()
+    let lb = b.len()
+    mut n = la
+    if lb < n
+        n = lb
+    end
+    mut i = 0
+    while i < n
+        let ca = kol_char_code_at(a, i)
+        let cb = kol_char_code_at(b, i)
+        if ca < cb return -1 end
+        if ca > cb return 1 end
+        i = i + 1
+    end
+    if la < lb return -1 end
+    if la > lb return 1 end
+    return 0
+end
+
+fn str_less(a: str, b: str) -> bool
+    return str_compare(a, b) < 0
+end
+
+-- ---------------------------------------------------------------------------
+-- case and shape
+-- ---------------------------------------------------------------------------
+fn capitalize(s: str) -> str
+    if s.len() == 0 return s end
+    let head: str = s.slice(0, 1)
+    let tail: str = s.slice(1, s.len())
+    return head.upper() + tail.lower()
+end
+
+fn swap_case(s: str) -> str
+    let n = s.len()
+    mut out = ""
+    mut i = 0
+    while i < n
+        let c: str = s.slice(i, i + 1)
+        if is_upper_char(c)
+            out = out + c.lower()
+        elif is_lower_char(c)
+            out = out + c.upper()
+        else
+            out = out + c
+        end
+        i = i + 1
+    end
+    return out
+end
+
+fn title_case(s: str) -> str
+    let n = s.len()
+    mut out = ""
+    mut new_word = true
+    mut i = 0
+    while i < n
+        let c: str = s.slice(i, i + 1)
+        if is_alpha_char(c)
+            if new_word
+                out = out + c.upper()
+            else
+                out = out + c.lower()
+            end
+            new_word = false
+        else
+            out = out + c
+            new_word = true
+        end
+        i = i + 1
+    end
+    return out
+end
+
+fn center_str(s: str, width: int, pad_char: str) -> str
+    let n = s.len()
+    if n >= width return s end
+    let total = width - n
+    let left = total / 2
+    let right = total - left
+    mut out = ""
+    out = out + pad_char.repeat(left)
+    out = out + s
+    out = out + pad_char.repeat(right)
+    return out
+end
+
+fn truncate_str(s: str, max_len: int, suffix: str) -> str
+    if s.len() <= max_len return s end
+    let keep = max_len - suffix.len()
+    if keep <= 0 return suffix.slice(0, max_len) end
+    return s.slice(0, keep) + suffix
+end
+
+fn strip_prefix(s: str, prefix: str) -> str
+    if prefix.len() > 0 and s.starts_with(prefix)
+        return s.slice(prefix.len(), s.len())
+    end
+    return s
+end
+
+fn strip_suffix(s: str, suffix: str) -> str
+    if suffix.len() > 0 and s.ends_with(suffix)
+        return s.slice(0, s.len() - suffix.len())
+    end
+    return s
+end
+
+fn replace_first(s: str, old_sub: str, new_sub: str) -> str
+    let pos = kol_str_find(s, old_sub, 0)
+    if pos < 0 return s end
+    if old_sub.len() == 0 return s end
+    mut out = ""
+    out = out + s.slice(0, pos)
+    out = out + new_sub
+    out = out + s.slice(pos + old_sub.len(), s.len())
+    return out
+end
+
+fn remove_substr(s: str, sub: str) -> str
+    return s.replace(sub, "")
+end
+
+fn str_between(s: str, open_s: str, close_s: str) -> str
+    let a = kol_str_find(s, open_s, 0)
+    if a < 0 return "" end
+    let start = a + open_s.len()
+    let b = kol_str_find(s, close_s, start)
+    if b < 0 return "" end
+    return s.slice(start, b)
+end
+
+-- ---------------------------------------------------------------------------
+-- splitting into pieces
+-- ---------------------------------------------------------------------------
+fn str_chars(s: str) -> [str]
+    mut out: [str] = ["x"]
+    out.pop()
+    let n = s.len()
+    mut i = 0
+    while i < n
+        out.push(s.slice(i, i + 1))
+        i = i + 1
+    end
+    return out
+end
+
+fn str_lines(s: str) -> [str]
+    let cr: str = kol_chr(13)
+    let cleaned: str = s.replace(cr, "")
+    return cleaned.split("\n")
+end
+
+fn str_words(s: str) -> [str]
+    mut out: [str] = ["x"]
+    out.pop()
+    let n = s.len()
+    mut cur = ""
+    mut i = 0
+    while i < n
+        let c: str = s.slice(i, i + 1)
+        if is_space_char(c)
+            if cur.len() > 0
+                out.push(cur)
+                cur = ""
+            end
+        else
+            cur = cur + c
+        end
+        i = i + 1
+    end
+    if cur.len() > 0
+        out.push(cur)
+    end
+    return out
+end
+
