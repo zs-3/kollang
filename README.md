@@ -53,6 +53,23 @@ See [docs/concurrency.md](docs/concurrency.md) for the full guide,
 `examples/concurrency_*.kol` for runnable programs and
 `benchmarks/concurrency/` for the benchmark suite against C, Go and Nim.
 
+## Packages with Kit
+
+`kit` is Kol's package manager and project tool (see [docs/kit.md](docs/kit.md)).
+
+```bash
+./kit.py new myapp && cd myapp      # create a project
+kit add greeter                     # add a library from your registry
+kit run                             # build and run
+```
+
+```kol
+use greeter                         -- then use its functions directly
+print(greeter_hello("Kol"))
+```
+
+This version works offline (directory registries); online support is next.
+
 ## Running Tests
 
 ```bash

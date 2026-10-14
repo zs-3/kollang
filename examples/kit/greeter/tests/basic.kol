@@ -1,0 +1,5 @@
+use greeter
+use greeter.polite
+
+print(greeter_hello("Kol"))
+print(greeter_formal("Kol"))
