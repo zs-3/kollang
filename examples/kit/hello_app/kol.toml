@@ -1,0 +1,12 @@
+[package]
+name = "hello_app"
+version = "0.1.0"
+description = "Example application that uses the greeter library"
+license = "MIT"
+
+[dependencies]
+# A local package, used in place. After `kit publish` in ../greeter you could
+# write `greeter = "^0.2"` instead and Kit would fetch it from your registry.
+greeter = { path = "../greeter" }
+
+[dev-dependencies]

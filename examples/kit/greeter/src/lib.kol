@@ -1,0 +1,8 @@
+-- greeter: an example Kit library.
+-- Programs use it with `use greeter` (everything in this file) or
+-- `use greeter.polite` (just the polite module).
+-- Imports are flat, so public names carry the package prefix.
+
+fn greeter_hello(who: str) -> str
+    return "Hello, " + who + "!"
+end

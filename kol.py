@@ -12,7 +12,10 @@ from compiler.parser import Parser
 from compiler.codegen import Codegen
 from compiler.analyser import Analyser
 from compiler.errors import KolError
-from compiler.ast_nodes import ASTNode, Program, ScriptProgram, UseStmt
+from compiler.ast_nodes import ASTNode, FunctionDecl, Program, ScriptProgram, UseStmt
+from compiler.packages import PackageContext
+
+KOL_VERSION = "0.1.0-alpha"
 
 try:
     from compiler.feature_guards import check_unimplemented_features
@@ -32,7 +35,9 @@ def get_c_compiler() -> str:
             return cc
     raise RuntimeError("No suitable C compiler (gcc, clang, tcc) found in PATH.")
 
-def resolve_imports_and_parse(filepath: str, visited: set) -> List[ASTNode]:
+def resolve_imports_and_parse(filepath: str, visited: set, pkg_ctx=None) -> List[ASTNode]:
+    # pkg_ctx: PackageContext from `kit` (packages installed for this project),
+    # consulted for `use <package>[.module]` after local files and std.
     abs_path = os.path.abspath(filepath)
     if abs_path in visited:
         return []
@@ -68,6 +73,8 @@ def resolve_imports_and_parse(filepath: str, visited: set) -> List[ASTNode]:
 
             resolved_file = None
             tried_paths = []
+            pkg_detail = None
+            pkg_hint = None
 
             if import_path.startswith("./") or import_path.startswith("../"):
                 target_file = os.path.join(dir_path, import_path)
@@ -94,9 +101,17 @@ def resolve_imports_and_parse(filepath: str, visited: set) -> List[ASTNode]:
                             tried_paths = [std_target]
                     else:
                         tried_paths = [local_target, local_target + ".kol"]
+                        if pkg_ctx is not None:
+                            pkg_file, pkg_detail, pkg_hint = pkg_ctx.resolve(import_path, filepath)
+                            if pkg_file:
+                                resolved_file = pkg_file
+                        else:
+                            pkg_hint = (f"if '{import_path.split('.')[0]}' is a package, install it with "
+                                        f"`kit add {import_path.split('.')[0]}` inside a project, "
+                                        f"or `kit install -g {import_path.split('.')[0]}` for scripts")
 
             if resolved_file:
-                imported_nodes = resolve_imports_and_parse(resolved_file, visited)
+                imported_nodes = resolve_imports_and_parse(resolved_file, visited, pkg_ctx)
 
                 if stmt.imports:
                     # Selective import: keep only the requested top-level
@@ -130,15 +145,42 @@ def resolve_imports_and_parse(filepath: str, visited: set) -> List[ASTNode]:
                     nodes.extend(imported_nodes)
             else:
                 tried_str = ", ".join(tried_paths)
-                raise KolError(f"Cannot resolve import '{import_path}'. Tried: {tried_str}", location=stmt_loc)
+                message = f"Cannot resolve import '{import_path}'. Tried: {tried_str}"
+                if pkg_detail:
+                    message += f"\n  {pkg_detail}"
+                raise KolError(message, location=stmt_loc, hint=pkg_hint)
         else:
             nodes.append(stmt)
 
     return nodes
 
+def check_duplicate_functions(nodes: List[ASTNode]) -> None:
+    """Imports are flat, so two modules (or packages) defining the same top-level
+    function would otherwise surface as an unreadable C redefinition error."""
+    seen = {}
+    for node in nodes:
+        if not isinstance(node, FunctionDecl) or not node.name:
+            continue
+        loc = getattr(node, "location", None)
+        if node.name in seen:
+            first = seen[node.name]
+            first_where = f"{first.filename}:{first.line}" if first else "another file"
+            raise KolError(
+                f"function '{node.name}' is defined twice: also defined at {first_where}",
+                location=loc,
+                hint="imports are flat, so every function name must be unique across all imported "
+                     "modules and packages; import selectively with `use pkg: (name as other)` "
+                     "to rename one of them",
+            )
+        seen[node.name] = loc
+
+
 def compile_kol_to_c(kol_filepath: str, release_mode: bool = False) -> str:
     visited = set()
-    all_nodes = resolve_imports_and_parse(kol_filepath, visited)
+    pkg_ctx = PackageContext.find(kol_filepath)
+    all_nodes = resolve_imports_and_parse(kol_filepath, visited, pkg_ctx)
+
+    check_duplicate_functions(all_nodes)
 
     has_main = False
     for node in all_nodes:
@@ -354,7 +396,7 @@ def cmd_fmt(args: List[str]):
     print(f"Formatted {filepath}")
 
 def cmd_version():
-    print("Kol Programming Language v0.1.0-alpha")
+    print(f"Kol Programming Language v{KOL_VERSION}")
 
 def main():
     if len(sys.argv) < 2:

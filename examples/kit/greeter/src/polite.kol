@@ -1,0 +1,3 @@
+fn greeter_formal(who: str) -> str
+    return "Good day, " + who + "."
+end

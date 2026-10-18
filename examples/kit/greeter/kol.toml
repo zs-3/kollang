@@ -1,0 +1,8 @@
+[package]
+name = "greeter"
+version = "0.2.0"
+description = "Friendly greetings for Kol programs"
+license = "MIT"
+keywords = ["text", "example"]
+
+[dependencies]
