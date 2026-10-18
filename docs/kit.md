@@ -17,6 +17,27 @@ Requires Python 3.11+ (tested on 3.11, 3.12 and 3.13; an older-Python TOML
 fallback parser is bundled and tested only by forcing it on 3.11+ with
 `KIT_FORCE_MINITOML=1`) and a C compiler for building, same as `kol`.
 
+## What Kit can do
+
+27 top-level commands (`kit --help`):
+
+* **Projects:** `new`, `init`, `clean`, `script`
+* **Dependencies:** `add`, `remove`, `install` (`-g`, `--frozen`), `update`
+* **Inspecting:** `list`, `tree`, `why`, `search`, `info`
+* **Building:** `build`, `run`, `check`, `test`, `jit`
+* **Publishing:** `pack`, `publish`, `yank`
+* **Infrastructure:** `registry`, `cache`, `doctor`, `version`, `chibicc` (optional)
+
+Main features: semver requirements; a deterministic, checksummed `kol.lock`
+(`--frozen` for CI); a backtracking resolver (one version per package, explains
+failures); registry, path, `.kitpkg` file and URL sources; multiple directory
+registries where the first owner of a name wins; a content-addressed, verified
+store with safe pruning; `use <package>` in Kol with per-file visibility
+(declared dependencies only; dev-dependencies only from tests/examples/benches);
+deterministic archives and a hardened unpacker; `kit test` with `.expected`
+files; gcc or optional chibicc (`--cc`, `kit jit`); `--json` output, `doctor`,
+and automatic `kol.toml` rollback when `kit add` fails.
+
 ## Five-minute tour
 
 ```sh
