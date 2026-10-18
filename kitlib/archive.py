@@ -191,6 +191,44 @@ def pack(root: str, manifest: Manifest, dest: str, files: Optional[List[str]] = 
     return PackResult(dest, sha256_bytes(data), len(data), files)
 
 
+# -- reading a package's manifest without unpacking it -------------------------
+
+MAX_MANIFEST_BYTES = 1024 * 1024
+
+
+def read_manifest(archive_path: str):
+    """Parse the ``kol.toml`` inside a ``.kitpkg`` without extracting anything.
+
+    The archive must have the layout ``<name>-<version>/kol.toml`` that
+    ``kit pack`` produces; a mismatch between that folder name and the manifest
+    is rejected so an archive cannot pretend to be another package."""
+    from . import manifest as manifest_mod
+    found = None
+    try:
+        with tarfile.open(archive_path, mode="r:gz") as tar:
+            for member in tar:
+                parts = member.name.split("/")
+                if len(parts) == 2 and parts[1] == manifest_mod.MANIFEST_NAME and member.isreg():
+                    if member.size > MAX_MANIFEST_BYTES:
+                        raise KitError(f"{archive_path}: {manifest_mod.MANIFEST_NAME} is unreasonably large")
+                    handle = tar.extractfile(member)
+                    found = (parts[0], handle.read().decode("utf-8") if handle else "")
+                    break
+    except (tarfile.TarError, EOFError, gzip.BadGzipFile, zlib.error, UnicodeDecodeError, OSError) as e:
+        raise KitError(f"{archive_path} is not a valid Kit package archive ({e.__class__.__name__}: {e})",
+                       hint="create packages with `kit pack`; they are gzip-compressed tar files (.kitpkg)")
+    if found is None:
+        raise KitError(f"{archive_path} is not a Kit package: no <name>-<version>/{manifest_mod.MANIFEST_NAME} inside",
+                       hint="create packages with `kit pack`")
+    top, text = found
+    m = manifest_mod.parse(text, os.path.join(os.path.dirname(os.path.abspath(archive_path)), top, manifest_mod.MANIFEST_NAME))
+    expected_top = archive_basename(m.name, str(m.version))
+    if top != expected_top:
+        raise KitError(f"{archive_path}: folder '{top}' does not match its manifest ({expected_top})",
+                       hint="the archive was not created by `kit pack`")
+    return m
+
+
 # -- unpacking ---------------------------------------------------------------
 
 def _safe_member_path(name: str, top: str) -> str:

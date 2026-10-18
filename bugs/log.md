@@ -83,3 +83,7 @@ Tests: `tests/test_kit.py` (`CompilerIntegrationTests.test_duplicate_function_ge
 ## Feature — Kit package manager (`kit.py`, `kitlib/`, `compiler/packages.py`)
 `use <package>` / `use <package>.<module>` now resolves installed packages after local files and `std.*`. Imports from packages are checked per importing file: a package may only use packages it declares as dependencies, and dev-dependencies only from `tests/`, `examples/`, `benches/`. See `docs/kit.md`.
 Tests: `tests/test_kit.py` (53+ cases, also run with the fallback TOML parser on Python 3.11 and 3.12).
+
+## Feature — Kit: dependencies from `.kitpkg` files and URLs, optional chibicc
+`kit add`/`kit install` accept a `.kitpkg` path or an http(s) URL (`#sha256=` supported); `kol.toml` gains `url`/`archive`/`checksum` dependency keys, locked as `url+…`/`archive+…` with sha256 and verified on every install. `kit jit`, `kit run --jit` and `--cc chibicc` compile with an optionally installed chibicc in RAM. Kol's runtime/concurrency/atomics were NOT changed (chibicc gets a Kit-side compat header).
+Tests: `tests/test_kit_sources.py` (11 cases, local HTTP server), `tests/test_kit_chibicc.py` (17 cases).

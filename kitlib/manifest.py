@@ -18,7 +18,7 @@ PACKAGE_KEYS = {
     "repository", "homepage", "readme", "keywords", "kol", "include",
     "exclude", "publish",
 }
-DEP_KEYS = {"version", "path"}
+DEP_KEYS = {"version", "path", "url", "archive", "checksum"}
 UNSUPPORTED_DEP_KEYS = {
     "git": "git dependencies need network support, which this offline version of Kit does not have yet",
     "registry": "per-dependency registries are not supported yet (Kit searches the configured registries in priority order)",
@@ -37,14 +37,25 @@ class Dependency:
     req: Optional[Req] = None        # version requirement (registry source)
     path: Optional[str] = None       # path as written, relative to its manifest
     dev: bool = False
+    url: Optional[str] = None        # http(s) URL of a .kitpkg archive
+    archive: Optional[str] = None    # path of a local .kitpkg, relative to its manifest
+    checksum: Optional[str] = None   # sha256 hex that the archive must have (url/archive)
 
     @property
     def is_path(self) -> bool:
         return self.path is not None
 
+    @property
+    def is_archive(self) -> bool:
+        return self.url is not None or self.archive is not None
+
     def describe(self) -> str:
         if self.path is not None:
             return f"path {self.path}" + (f" ({self.req})" if self.req else "")
+        if self.url is not None:
+            return f"url {self.url}" + (f" ({self.req})" if self.req else "")
+        if self.archive is not None:
+            return f"archive {self.archive}" + (f" ({self.req})" if self.req else "")
         return str(self.req)
 
 
@@ -132,7 +143,8 @@ def _parse_dep(file: str, section: str, name: str, spec, dev: bool) -> Dependenc
                         hint='write a requirement such as "^1.2", "~0.3.1" or ">=1.0, <2.0"')
     if not isinstance(spec, dict):
         raise _fail(file, f"[{section}] {name}: expected a version string or a table like "
-                          f'{{ version = "1.0" }} or {{ path = "../{name}" }}')
+                          f'{{ version = "1.0" }}, {{ path = "../{name}" }}, '
+                          f'{{ url = "https://.../{name}-1.0.0.kitpkg" }} or {{ archive = "vendor/{name}-1.0.0.kitpkg" }}')
     for key in spec:
         if key in UNSUPPORTED_DEP_KEYS:
             raise _fail(file, f"[{section}] {name}: '{key}' is not supported: {UNSUPPORTED_DEP_KEYS[key]}")
@@ -152,9 +164,29 @@ def _parse_dep(file: str, section: str, name: str, spec, dev: bool) -> Dependenc
         if not isinstance(spec["path"], str) or not spec["path"]:
             raise _fail(file, f"[{section}] {name}: 'path' must be a non-empty string")
         path = spec["path"].replace("\\", "/")
-    if req is None and path is None:
-        raise _fail(file, f"[{section}] {name}: needs a 'version' or a 'path'")
-    return Dependency(name, req=req, path=path, dev=dev)
+    url = archive_path = checksum = None
+    if "url" in spec:
+        if not isinstance(spec["url"], str) or not spec["url"].lower().startswith(("http://", "https://")):
+            raise _fail(file, f"[{section}] {name}: 'url' must be an http:// or https:// URL")
+        url = spec["url"]
+    if "archive" in spec:
+        if not isinstance(spec["archive"], str) or not spec["archive"].endswith(".kitpkg"):
+            raise _fail(file, f"[{section}] {name}: 'archive' must be a path to a .kitpkg file")
+        archive_path = spec["archive"].replace("\\", "/")
+    if "checksum" in spec:
+        from .fetch import normalize_checksum
+        try:
+            checksum = normalize_checksum(str(spec["checksum"]))
+        except ValueError as e:
+            raise _fail(file, f"[{section}] {name}: {e}")
+    sources = [k for k, v in (("path", path), ("url", url), ("archive", archive_path)) if v is not None]
+    if len(sources) > 1:
+        raise _fail(file, f"[{section}] {name}: {' and '.join(sources)} are different sources; use only one")
+    if checksum is not None and url is None and archive_path is None:
+        raise _fail(file, f"[{section}] {name}: 'checksum' only applies to 'url' and 'archive' dependencies")
+    if req is None and not sources:
+        raise _fail(file, f"[{section}] {name}: needs a 'version', 'path', 'url' or 'archive'")
+    return Dependency(name, req=req, path=path, dev=dev, url=url, archive=archive_path, checksum=checksum)
 
 
 def parse(text: str, file: str) -> Manifest:

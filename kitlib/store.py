@@ -44,35 +44,44 @@ def install(registry: Registry, entry: IndexEntry, expected_checksum: Optional[s
             hint="the package contents changed after it was locked; this can mean tampering. "
                  "If you trust the new contents, delete the entry from kol.lock (or run `kit update "
                  f"{entry.name}`)")
-    dest = package_dir(entry.name, entry.version, checksum)
     if is_installed(entry.name, entry.version, checksum):
-        return dest
+        return package_dir(entry.name, entry.version, checksum)
+    return install_archive(registry.fetch(entry), entry.name, entry.version, checksum, entry.registry)
 
+
+def install_archive(archive_path: str, name: str, version: Version, checksum: str, origin: str) -> str:
+    """Verify, unpack and atomically install one archive; return its store directory.
+
+    ``checksum`` is the sha256 the archive must have (from a registry index, a
+    lockfile or a hash Kit just computed); ``origin`` is recorded in the metadata."""
+    dest = package_dir(name, version, checksum)
+    if is_installed(name, version, checksum):
+        return dest
     with paths.home_lock():
-        if is_installed(entry.name, entry.version, checksum):
+        if is_installed(name, version, checksum):
             return dest
-        archive_path = registry.fetch(entry)
         actual = archive.sha256_file(archive_path)
         if actual != checksum:
             raise KitError(
-                f"checksum mismatch for {entry.name} v{entry.version}: the archive does not match "
-                f"the registry index\n  index:   sha256:{checksum}\n  archive: sha256:{actual}",
+                f"checksum mismatch for {name} v{version}: the archive does not match what was expected\n"
+                f"  expected: sha256:{checksum}\n"
+                f"  archive:  sha256:{actual}",
                 hint=f"the archive at {archive_path} is corrupt or was modified; refusing to install it")
         os.makedirs(paths.store_dir(), exist_ok=True)
         tmp = tempfile.mkdtemp(prefix=".unpack-", dir=paths.store_dir())
         try:
-            files = archive.unpack(archive_path, tmp, entry.name, str(entry.version))
+            files = archive.unpack(archive_path, tmp, name, str(version))
             mpath = os.path.join(tmp, manifest_mod.MANIFEST_NAME)
             if not os.path.isfile(mpath):
-                raise KitError(f"{entry.name} v{entry.version} has no {manifest_mod.MANIFEST_NAME} inside its archive")
+                raise KitError(f"{name} v{version} has no {manifest_mod.MANIFEST_NAME} inside its archive")
             m = manifest_mod.load(tmp)
-            if m.name != entry.name or m.version != entry.version:
+            if m.name != name or m.version != version:
                 raise KitError(
-                    f"archive identity mismatch: the registry says {entry.name} v{entry.version} "
+                    f"archive identity mismatch: expected {name} v{version} "
                     f"but the archive's kol.toml says {m.name} v{m.version}")
             paths.write_json(os.path.join(tmp, META_FILE), {
-                "name": entry.name, "version": str(entry.version),
-                "checksum": checksum, "registry": entry.registry, "files": len(files),
+                "name": name, "version": str(version),
+                "checksum": checksum, "registry": origin, "files": len(files),
                 "tree": archive.tree_hash(tmp),
             })
             if os.path.exists(dest):

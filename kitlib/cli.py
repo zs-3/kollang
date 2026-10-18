@@ -59,7 +59,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     # -- dependencies -----------------------------------------------------------
     p = add("add", "add dependencies to kol.toml and install them")
-    p.add_argument("specs", nargs="*", metavar="PACKAGE[@REQ]")
+    p.add_argument("specs", nargs="*", metavar="PACKAGE[@REQ]|URL|FILE.kitpkg")
     p.add_argument("--dev", action="store_true", help="add to [dev-dependencies]")
     p.add_argument("--path", metavar="DIR", help="depend on a local package directory")
 
@@ -67,7 +67,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("names", nargs="+", metavar="PACKAGE")
 
     p = add("install", "install dependencies (or add/globally install the given packages)", aliases=["i"])
-    p.add_argument("specs", nargs="*", metavar="PACKAGE[@REQ]")
+    p.add_argument("specs", nargs="*", metavar="PACKAGE[@REQ]|URL|FILE.kitpkg")
     p.add_argument("-g", "--global", dest="global_", action="store_true", help="install for use in any Kol file, outside projects")
     p.add_argument("--frozen", "--locked", dest="frozen", action="store_true", help="fail if kol.lock would change (for CI)")
 
@@ -94,21 +94,34 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--json", action="store_true")
 
     # -- build -------------------------------------------------------------------------------
+    cc_help = "C compiler for the generated code (default: gcc, or $KIT_CC)"
     p = add("build", "compile the project")
     p.add_argument("--release", action="store_true", help="optimised build")
     p.add_argument("--bin", metavar="NAME")
     p.add_argument("--all", action="store_true", help="build every binary")
+    p.add_argument("--cc", choices=["gcc", "chibicc"], help=cc_help)
 
     p = add("run", "build and run a binary")
     p.add_argument("--release", action="store_true")
     p.add_argument("--bin", metavar="NAME")
+    p.add_argument("--cc", choices=["gcc", "chibicc"], help=cc_help)
+    p.add_argument("--jit", action="store_true", help="compile with chibicc and run from memory; nothing is written to disk")
     p.add_argument("args", nargs="*", help="arguments for the program (after --)")
+
+    p = add("jit", "compile and run one .kol file from memory (chibicc)")
+    p.add_argument("file")
+    p.add_argument("args", nargs="*", help="arguments for the program (after --)")
+
+    p = add("chibicc", "install and inspect the chibicc compiler (setup, status, path)")
+    p.add_argument("action", choices=["setup", "status", "path"])
+    p.add_argument("--force", action="store_true", help="with setup: rebuild even if up to date")
 
     add("check", "check the code without producing a binary")
 
     p = add("test", "run the tests in tests/")
     p.add_argument("filter", nargs="?", help="only run tests whose path contains this text")
     p.add_argument("--release", action="store_true")
+    p.add_argument("--cc", choices=["gcc", "chibicc"], help=cc_help)
 
     add("clean", "remove the target/ directory")
 
@@ -156,7 +169,7 @@ def _dispatch(args) -> int:
         "list": cmd_registry.cmd_list, "ls": cmd_registry.cmd_list,
         "tree": cmd_registry.cmd_tree, "why": cmd_registry.cmd_why,
         "search": cmd_registry.cmd_search, "info": cmd_registry.cmd_info,
-        "build": cmd_build.cmd_build, "run": cmd_build.cmd_run, "check": cmd_build.cmd_check,
+        "build": cmd_build.cmd_build, "run": cmd_build.cmd_run, "jit": cmd_build.cmd_jit, "chibicc": cmd_build.cmd_chibicc, "check": cmd_build.cmd_check,
         "test": cmd_build.cmd_test, "clean": cmd_build.cmd_clean, "script": cmd_build.cmd_script,
         "pack": cmd_registry.cmd_pack, "package": cmd_registry.cmd_pack,
         "publish": cmd_registry.cmd_publish, "yank": cmd_registry.cmd_yank,
@@ -183,7 +196,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     if not args.command:
         parser.print_help()
         return 0
-    if args.command in ("run", "script"):
+    if args.command in ("run", "script", "jit"):
         args.args = list(getattr(args, "args", [])) + passthrough
     elif passthrough:
         parser.error("unexpected arguments after '--'")

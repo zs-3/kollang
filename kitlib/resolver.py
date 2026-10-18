@@ -17,7 +17,7 @@ import os
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Set, Tuple
 
-from . import manifest as manifest_mod
+from . import archive as archive_mod, fetch, manifest as manifest_mod
 from .errors import KitError
 from .manifest import Manifest
 from .registry import IndexEntry, RegistrySet
@@ -32,10 +32,17 @@ class Requirement:
     req: Optional[Req]
     path: Optional[str]          # absolute directory for path dependencies
     requirer: str                # e.g. "myapp" or "greeter v1.2.0"
+    url: Optional[str] = None            # archive source: http(s) URL ...
+    archive: Optional[str] = None        # ... or absolute path of a local .kitpkg
+    checksum: Optional[str] = None       # sha256 hex pinned in kol.toml
 
     def describe(self) -> str:
         if self.path:
             return f"path {self.path}" + (f" ({self.req})" if self.req else "")
+        if self.url:
+            return f"url {self.url}" + (f" ({self.req})" if self.req else "")
+        if self.archive:
+            return f"archive {self.archive}" + (f" ({self.req})" if self.req else "")
         return str(self.req)
 
 
@@ -43,12 +50,15 @@ class Requirement:
 class Candidate:
     name: str
     version: Version
-    source: str                  # "registry" | "path"
+    source: str                  # "registry" | "path" | "archive"
     registry: str = ""
     entry: Optional[IndexEntry] = None
     manifest: Optional[Manifest] = None
     path: Optional[str] = None
     deps: List[Requirement] = field(default_factory=list)
+    archive_path: Optional[str] = None   # local .kitpkg (archive source)
+    origin: Optional[str] = None         # URL or absolute file the archive came from
+    checksum: Optional[str] = None       # sha256 hex of the archive
 
     @property
     def label(self) -> str:
@@ -60,13 +70,15 @@ class Node:
     """One package in the resolved graph."""
     name: str
     version: Version
-    source: str                  # "registry" | "path"
+    source: str                  # "registry" | "path" | "archive"
     registry: str = ""
     path: Optional[str] = None   # absolute directory (path packages)
     checksum: Optional[str] = None
     deps: List[str] = field(default_factory=list)
     entry: Optional[IndexEntry] = None
     manifest: Optional[Manifest] = None
+    archive_path: Optional[str] = None
+    origin: Optional[str] = None
 
     @property
     def label(self) -> str:
@@ -94,13 +106,16 @@ class Resolver:
                  locked: Optional[Dict[str, Version]] = None,
                  unlock: Optional[Set[str]] = None,
                  kol_version: Optional[Version] = None,
-                 include_dev: bool = True):
+                 include_dev: bool = True,
+                 locked_checksums: Optional[Dict[str, str]] = None):
         self.registries = registries
         self.root = root
         self.locked = locked or {}
         self.unlock = unlock or set()
         self.kol_version = kol_version.core if kol_version else None
         self.include_dev = include_dev
+        self.locked_checksums = locked_checksums or {}
+        self._archive_cache: Dict[str, Candidate] = {}
         self._failure: Optional[_Failure] = None
         self._steps = 0
         self._path_cache: Dict[str, Candidate] = {}
@@ -124,9 +139,12 @@ class Resolver:
             nodes[name] = Node(
                 name=name, version=cand.version, source=cand.source,
                 registry=cand.registry, path=cand.path,
-                checksum=cand.entry.checksum if cand.entry else None,
+                checksum=cand.entry.checksum if cand.entry else cand.checksum,
                 deps=sorted({d.name for d in cand.deps}),
-                entry=cand.entry, manifest=cand.manifest,
+                entry=cand.entry,
+                # path packages are read in place; registry/archive packages are read from the store
+                manifest=cand.manifest if cand.source == "path" else None,
+                archive_path=cand.archive_path, origin=cand.origin,
             )
         self._check_cycles(nodes)
         return Resolution(nodes, root_deps)
@@ -136,7 +154,11 @@ class Resolver:
         path = None
         if dep.path is not None:
             path = os.path.normpath(os.path.join(base_dir, dep.path))
-        return Requirement(dep.name, dep.req, path, requirer)
+        archive = None
+        if dep.archive is not None:
+            archive = os.path.normpath(os.path.join(base_dir, dep.archive))
+        return Requirement(dep.name, dep.req, path, requirer,
+                           url=dep.url, archive=archive, checksum=dep.checksum)
 
     # -- candidates ---------------------------------------------------------
     def _path_candidate(self, name: str, directory: str, reqs: List[Requirement]) -> Candidate:
@@ -162,7 +184,76 @@ class Resolver:
             return True
         return kol_req.matches(self.kol_version)
 
+    def _archive_candidate(self, name: str, req: Requirement, reqs: List[Requirement]) -> Candidate:
+        """A package that comes from a .kitpkg file or URL: fetch it, verify it, read its manifest."""
+        key = req.url or req.archive
+        if key in self._archive_cache:
+            return self._archive_cache[key]
+        expected, expected_from = req.checksum, "kol.toml"
+        if expected is None and name not in self.unlock:
+            expected, expected_from = self.locked_checksums.get(name), "kol.lock"
+        if req.url:
+            local, sha = fetch.download(req.url, expected, expected_from)
+        else:
+            local = req.archive
+            if not os.path.isfile(local):
+                self._record(_Failure(0, "source", name, reqs, f"archive '{local}' does not exist"))
+                raise _SearchFail()
+            sha = archive_mod.sha256_file(local)
+            if expected and sha != expected:
+                raise KitError(
+                    f"checksum mismatch for archive {local}\n"
+                    f"  {expected_from} expects  sha256:{expected}\n"
+                    f"  the file is             sha256:{sha}",
+                    hint=f"the archive changed after it was locked. If that is intended, run `kit update {name}`.")
+        try:
+            m = archive_mod.read_manifest(local)
+        except KitError:
+            if req.url:  # do not keep a non-package in the download cache
+                try:
+                    os.unlink(local)
+                except OSError:
+                    pass
+            raise
+        if m.name != name:
+            self._record(_Failure(0, "source", name, reqs,
+                                  f"the dependency is named '{name}' but {key} contains package '{m.name}'"))
+            raise _SearchFail()
+        if m.kol_req is not None and not self._kol_ok(m.kol_req):
+            self._record(_Failure(0, "source", name, reqs,
+                                  f"{m.name} v{m.version} needs kol {m.kol_req}, but this is kol {self.kol_version}"))
+            raise _SearchFail()
+        cand = Candidate(name=name, version=m.version, source="archive", manifest=m,
+                         archive_path=local, origin=key, checksum=sha)
+        for dname in sorted(m.deps):
+            dep = m.deps[dname]
+            if dep.path is not None or dep.is_archive:
+                raise KitError(
+                    f"{cand.label} (from {key}) depends on '{dname}' by {'path' if dep.path else 'url/archive'}, "
+                    f"which only works inside its original project",
+                    hint="packages distributed as archives may only depend on registry packages")
+            cand.deps.append(Requirement(dname, dep.req, None, cand.label))
+        self._archive_cache[key] = cand
+        return cand
+
     def _candidates(self, name: str, reqs: List[Requirement], depth: int) -> List[Candidate]:
+        # A url/archive requirement pins the package to that file.
+        archive_reqs = [r for r in reqs if r.url or r.archive]
+        if archive_reqs:
+            keys = {r.url or r.archive for r in archive_reqs}
+            if len(keys) > 1 or any(r.path for r in reqs):
+                self._record(_Failure(depth, "source", name, reqs,
+                                      "different sources were requested for the same package"))
+                return []
+            try:
+                cand = self._archive_candidate(name, archive_reqs[0], reqs)
+            except _SearchFail:
+                return []
+            if all(r.req is None or r.req.matches(cand.version) for r in reqs):
+                return [cand]
+            self._record(_Failure(depth, "nomatch", name, reqs, available=[f"{cand.version} (archive)"]))
+            return []
+
         # A path requirement pins the package to that directory.
         path_reqs = [r for r in reqs if r.path]
         if path_reqs:
@@ -271,6 +362,8 @@ class Resolver:
     @staticmethod
     def _satisfies(cand: Candidate, dep: Requirement) -> bool:
         if dep.path and cand.path != dep.path:
+            return False
+        if (dep.url or dep.archive) and cand.origin != (dep.url or dep.archive):
             return False
         if dep.req is not None and not dep.req.matches(cand.version):
             return False

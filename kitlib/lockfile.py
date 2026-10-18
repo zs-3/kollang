@@ -38,6 +38,14 @@ class Lockfile:
     def versions(self) -> Dict[str, Version]:
         return {n: p.version for n, p in self.packages.items() if p.source}
 
+    def archive_checksums(self) -> Dict[str, str]:
+        """sha256 hex of every package that came from a url/archive source."""
+        out = {}
+        for n, p in self.packages.items():
+            if p.source.startswith(("url+", "archive+")) and p.checksum.startswith("sha256:"):
+                out[n] = p.checksum.split(":", 1)[1]
+        return out
+
     def dumps(self) -> str:
         out = [HEADER, f"version = {LOCKFILE_VERSION}", ""]
         for name in sorted(self.packages):
@@ -102,6 +110,12 @@ def from_resolution(root_name: str, root_version: Version, root_deps: List[str],
             rel = os.path.relpath(node.path, project_root).replace(os.sep, "/")
             source = f"path+{rel}"
             checksum = ""
+        elif node.source == "archive":
+            if node.origin.lower().startswith(("http://", "https://")):
+                source = f"url+{node.origin}"
+            else:
+                source = "archive+" + os.path.relpath(node.origin, project_root).replace(os.sep, "/")
+            checksum = f"sha256:{node.checksum}"
         else:
             source = f"registry+{node.registry}"
             checksum = f"sha256:{node.checksum}" if node.checksum else ""

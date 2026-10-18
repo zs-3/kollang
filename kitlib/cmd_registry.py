@@ -271,6 +271,13 @@ def cmd_publish(args) -> int:
         raise KitError(f"'{m.name}' has no library to publish (no src/lib.kol)",
                        hint="a published package must provide src/lib.kol (or [lib] path = ...)")
 
+    for dname, dep in sorted(m.deps.items()):
+        if dep.is_archive:
+            raise KitError(
+                f"dependency '{dname}' comes from a {'url' if dep.url else 'archive file'}, "
+                f"which a published package cannot use",
+                hint="publish that package to a registry and depend on it by version")
+
     regs = RegistrySet.from_config()
     if args.registry:
         reg = regs.by_name(args.registry)
@@ -391,6 +398,14 @@ def _referenced_store_dirs() -> set:
     return refs
 
 
+def _downloads():
+    base = paths.downloads_dir()
+    if not os.path.isdir(base):
+        return []
+    return [(os.path.join(base, f), os.path.getsize(os.path.join(base, f))) for f in sorted(os.listdir(base))
+            if os.path.isfile(os.path.join(base, f))]
+
+
 def cmd_cache(args) -> int:
     action = args.action
     installed = store.list_installed()
@@ -401,6 +416,9 @@ def cmd_cache(args) -> int:
         rows = [[i["name"], i["version"], human_size(i["size"]), i.get("registry", "")] for i in installed]
         console.out(table(rows, ["NAME", "VERSION", "SIZE", "REGISTRY"]))
         console.out(f"\n{plural(len(installed), 'package')}, {human_size(sum(i['size'] for i in installed))} in {paths.store_dir()}")
+        dl = _downloads()
+        if dl:
+            console.out(f"{plural(len(dl), 'downloaded archive')}, {human_size(sum(sz for _p, sz in dl))} in {paths.downloads_dir()}")
         return 0
     if action == "clean":
         refs = set() if args.all else _referenced_store_dirs()
@@ -414,6 +432,14 @@ def cmd_cache(args) -> int:
             console.detail(f"removing {i['name']} v{i['version']}")
             if not args.dry_run:
                 store.remove(i["dir"])
+        if args.all:
+            for fp, sz in _downloads():
+                freed += sz
+                if not args.dry_run:
+                    try:
+                        os.unlink(fp)
+                    except OSError:
+                        pass
         verb = "Would remove" if args.dry_run else "Removed"
         console.status(verb, f"{plural(removed, 'package')} ({human_size(freed)})")
         if not args.all and removed == 0:

@@ -108,7 +108,8 @@ class Project:
         # Locked entries for packages that are no longer requested are ignored by the resolver.
         resolver = Resolver(
             self.registries, self.manifest, locked=locked_versions,
-            unlock=set(update or ()), kol_version=kol_version(), include_dev=include_dev)
+            unlock=set(update or ()), kol_version=kol_version(), include_dev=include_dev,
+            locked_checksums={} if (update_all or existing is None) else existing.archive_checksums())
         resolution = resolver.resolve()
 
         new_lock = lockfile.from_resolution(
@@ -134,6 +135,13 @@ class Project:
             if node.source == "path":
                 continue
             was = store.is_installed(node.name, node.version, node.checksum or "")
+            if node.source == "archive":
+                if not was:
+                    console.status("Installing", node.label)
+                store.install_archive(node.archive_path, node.name, node.version, node.checksum, "archive")
+                if not was:
+                    result.installed.append(node)
+                continue
             reg = self.registries.by_name(node.registry)
             if reg is None:
                 raise KitError(f"registry '{node.registry}' (needed for {node.label}) is not configured",

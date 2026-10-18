@@ -11,7 +11,7 @@ import subprocess
 import sys
 from typing import List, Optional, Tuple
 
-from . import paths
+from . import chibicc, paths
 from .errors import KitError
 from .manifest import BinTarget
 from .project import Project
@@ -51,16 +51,31 @@ def compile_to_c(entry: str, release: bool) -> str:
     return kol.compile_kol_to_c(entry, release_mode=release)
 
 
+COMPILERS = ("gcc", "chibicc")
+
+
+def resolve_cc(choice: Optional[str]) -> str:
+    """``--cc`` value, else $KIT_CC, else gcc (the system C compiler)."""
+    value = choice or os.environ.get("KIT_CC") or "gcc"
+    if value not in COMPILERS:
+        raise KitError(f"unknown C compiler '{value}'", hint="choose one of: " + ", ".join(COMPILERS))
+    return value
+
+
 def c_compile(c_code: str, out_bin: str, c_file: str, release: bool,
-              extra_flags: Optional[List[str]] = None) -> None:
-    kol = _kol_module()
+              extra_flags: Optional[List[str]] = None, cc: str = "gcc") -> None:
     os.makedirs(os.path.dirname(out_bin), exist_ok=True)
     with open(c_file, "w", encoding="utf-8") as f:
         f.write(c_code)
-    cc = kol.get_c_compiler()
+    if cc == "chibicc":
+        # chibicc does not optimise, so --release has no effect with it
+        chibicc.compile_file(c_file, out_bin, tmpdir=os.path.dirname(out_bin))
+        return
+    kol = _kol_module()
+    compiler = kol.get_c_compiler()
     runtime_dir = os.path.join(paths.compiler_root(), "runtime")
     opt = ["-O3", "-march=native"] if release else ["-O2"]
-    cmd = [cc] + (extra_flags or []) + opt + ["-I", runtime_dir, "-o", out_bin, c_file, "-lm", "-lpthread"]
+    cmd = [compiler] + (extra_flags or []) + opt + ["-I", runtime_dir, "-o", out_bin, c_file, "-lm", "-lpthread"]
     res = subprocess.run(cmd, capture_output=True, text=True)
     if res.returncode != 0:
         raise KitError("C compilation failed", notes=[res.stderr.strip()[-2000:]])
@@ -83,14 +98,15 @@ def pick_bin(project: Project, name: Optional[str]) -> BinTarget:
     return b
 
 
-def build_bin(project: Project, target: BinTarget, release: bool) -> str:
+def build_bin(project: Project, target: BinTarget, release: bool, cc: str = "gcc") -> str:
     profile = "release" if release else "debug"
     out_dir = os.path.join(project.root, "target", profile)
     out_bin = os.path.join(out_dir, target.name)
     entry = project.manifest.abs(target.path)
-    console.status("Compiling", f"{project.manifest.name} v{project.manifest.version} [{profile}] ({target.name})")
+    via = "" if cc == "gcc" else f" with {cc}"
+    console.status("Compiling", f"{project.manifest.name} v{project.manifest.version} [{profile}] ({target.name}){via}")
     c_code = compile_to_c(entry, release)
-    c_compile(c_code, out_bin, out_bin + ".c", release)
+    c_compile(c_code, out_bin, out_bin + ".c", release, cc=cc)
     try:
         os.unlink(out_bin + ".c")
     except OSError:
@@ -130,7 +146,7 @@ def find_tests(project: Project, pattern: Optional[str]) -> List[str]:
     return found
 
 
-def run_test(project: Project, path: str, release: bool) -> Tuple[bool, str]:
+def run_test(project: Project, path: str, release: bool, cc: str = "gcc") -> Tuple[bool, str]:
     """Compile and run one test program. Passing means exit 0 and, when a
     ``.expected`` file sits next to it, identical stdout."""
     profile = "release" if release else "debug"
@@ -140,7 +156,7 @@ def run_test(project: Project, path: str, release: bool) -> Tuple[bool, str]:
     out_bin = os.path.join(out_dir, name)
     try:
         c_code = compile_to_c(path, release)
-        c_compile(c_code, out_bin, out_bin + ".c", release)
+        c_compile(c_code, out_bin, out_bin + ".c", release, cc=cc)
     except KitError as e:
         return False, "build failed: " + e.message + "".join("\n" + n for n in e.notes)
     except Exception as e:  # KolError from the compiler
@@ -161,3 +177,23 @@ def run_test(project: Project, path: str, release: bool) -> Tuple[bool, str]:
         if res.stdout.strip() != want:
             return False, f"output mismatch\n--- expected\n{want}\n--- actual\n{res.stdout.strip()}"
     return True, ""
+
+
+def jit_run(entry: str, args: List[str]) -> int:
+    """Compile ``entry`` (a .kol file) with chibicc and run it from memory.
+
+    The generated C, chibicc's intermediate files and the executable all live
+    in a private /dev/shm directory (RAM) that is removed afterwards, and the
+    executable runs from an anonymous memfd, so nothing touches the disk."""
+    chibicc.require()                     # fail early with install instructions
+    c_code = compile_to_c(entry, False)
+    with chibicc.ram_workdir() as (work, in_ram):
+        if not in_ram:
+            console.warn("/dev/shm is not available; using the system temp directory instead of RAM")
+        c_file = os.path.join(work, "prog.c")
+        exe = os.path.join(work, "prog")
+        with open(c_file, "w", encoding="utf-8") as f:
+            f.write(c_code)
+        chibicc.compile_file(c_file, exe, tmpdir=work)
+        console.detail(f"compiled in {'RAM' if in_ram else 'temp'} ({work})")
+        return chibicc.run_from_memory(exe, args)

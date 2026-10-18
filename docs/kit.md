@@ -92,6 +92,8 @@ publish = true              # false: `kit publish` refuses
 mathx = "^1.2"                                  # from a registry
 local = { path = "../local" }                   # a directory, used in place
 both  = { version = "1.0", path = "../both" }   # path now, version when published
+tool  = { url = "https://example.com/tool-1.0.0.kitpkg", checksum = "sha256:<64 hex>" }
+file  = { archive = "vendor/file-0.3.0.kitpkg", checksum = "sha256:<64 hex>" }
 
 [dev-dependencies]
 testkit = "0.3"
@@ -113,6 +115,26 @@ chosen when a requirement names one. Unknown keys produce a warning (with a
 "did you mean" hint); `git`, `registry`, `optional`, `features` produce a clear
 "not supported yet" error.
 
+### Dependencies from a `.kitpkg` file or a URL
+
+`kit add ./vendor/tool-1.0.0.kitpkg` and `kit add https://host/tool-1.0.0.kitpkg`
+(also `kit install`, inside or outside a project) read the package name from the
+archive, compute its sha256 and **pin it in `kol.toml`**. Rules:
+
+* URLs must be `http(s)`. Redirects are followed only to http(s) and never from
+  https down to http; downloads are capped at 64 MiB with a 30 s timeout.
+  Plain `http://` without a checksum prints a warning.
+* `https://…/x.kitpkg#sha256=<hex>` checks the file before it is added.
+* The checksum is verified on every install; a changed file is refused
+  (`checksum mismatch`), also when `kol.lock` pinned it and the server later
+  serves something else. `kit update <name>` accepts new contents.
+* Downloads are cached in `$KIT_HOME/downloads/` by hash, so reinstalling needs
+  no network; `kit cache clean --all` removes them.
+* A package that arrives as an archive may only depend on registry packages, and
+  a package with url/archive/path dependencies cannot be published.
+* Like every non-registry source this bypasses registry name ownership; the
+  checksum protects integrity, not authorship.
+
 `.kitignore` (gitignore-style subset) and `exclude` control what is packaged.
 `target/`, `.git/`, `.kit/`, `kol.lock` and editor junk are always excluded;
 symlinks are refused.
@@ -123,6 +145,7 @@ symlinks are refused.
 |---|---|
 | `kit new <name> [--lib]` / `kit init` | create a project / adopt a directory |
 | `kit add <pkg>[@req] [--dev] [--path DIR]` | add dependency, resolve, install (rolls `kol.toml` back on failure) |
+| `kit add <file.kitpkg \| URL[#sha256=…]>` | add a dependency from an archive file or URL (checksum pinned) |
 | `kit remove <pkg>` (`rm`) | remove a dependency |
 | `kit install` (`i`) | resolve + install everything in `kol.toml` |
 | `kit install <pkg>` | same as `add` inside a project; **global** install outside one |
@@ -137,6 +160,9 @@ symlinks are refused.
 | `kit yank <pkg>@<ver> [--undo]` | hide a bad version from new resolutions |
 | `kit registry list\|add\|remove\|init` | manage registries |
 | `kit cache list\|clean\|verify` | inspect, prune (`--all`, `--dry-run`) and integrity-check the store |
+| `kit jit <file.kol> [args]`, `kit run --jit` | compile with chibicc in RAM and run (optional, see below) |
+| `kit build/run/test --cc gcc\|chibicc` | choose the C compiler (`KIT_CC` env also works) |
+| `kit chibicc setup\|status\|path` | build/inspect the optional chibicc compiler |
 | `kit doctor`, `kit version` | diagnostics |
 
 Global flags: `-q/--quiet`, `-v/--verbose`, `--color auto|always|never`
@@ -146,6 +172,22 @@ internal bug (`KIT_DEBUG=1` prints a traceback).
 
 `kit test` compiles and runs every `.kol` file under `tests/`; a test passes
 when it exits 0 and, if a `.expected` file sits beside it, prints exactly that.
+
+## Optional: chibicc and `kit jit`
+
+`kit chibicc setup` builds a pinned chibicc (needs git, make, a C compiler and
+network, once) into `$KIT_HOME/tools/chibicc`. After that `--cc chibicc` and
+`kit jit` use it. Facts and limits, measured not assumed:
+
+* Kol's runtime is **not modified** for chibicc. Stock chibicc lacks the GCC
+  `__atomic_*` builtins, so Kit injects `kitlib/chibicc_compat.h` (CAS-based
+  shims) with `-include` only for chibicc builds.
+* chibicc has no linker of its own; it needs system `as` and `ld`. "In RAM"
+  means intermediates and the executable live in `/dev/shm` and the program is
+  run from an anonymous `memfd`; nothing is written to disk.
+* x86-64 Linux only. chibicc does not optimise: on a 200M-iteration loop it ran
+  ~6.5x slower than `gcc -O2` (2.85 s vs 0.44 s); compile time was similar and
+  compile RAM about 2x. Use gcc for anything performance-sensitive.
 
 ## How it works
 

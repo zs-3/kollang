@@ -5,7 +5,7 @@ import os
 import re
 from typing import List, Optional, Set, Tuple
 
-from . import manifest as manifest_mod, manifest_edit, names, paths
+from . import archive, fetch, manifest as manifest_mod, manifest_edit, names, paths
 from .errors import KitError
 from .project import Project, SyncResult
 from .registry import RegistrySet
@@ -156,6 +156,39 @@ def parse_spec(spec: str) -> Tuple[str, Optional[str]]:
     return name, req
 
 
+def is_source_spec(raw: str) -> bool:
+    """True for a URL or a .kitpkg file path (as opposed to a registry package name)."""
+    low = raw.lower()
+    return low.startswith(("http://", "https://")) or low.split("#", 1)[0].endswith(archive.ARCHIVE_EXT)
+
+
+def resolve_source_spec(raw: str, project_root: str):
+    """Fetch/read a url or .kitpkg spec once; return (name, dict of dependency fields).
+
+    The archive's sha256 is pinned in the returned fields so kol.toml records exactly
+    what was added."""
+    if raw.lower().startswith(("http://", "https://")):
+        url, given = fetch.split_fragment(raw)
+        local, sha = fetch.download(url, given, "the #sha256 in the URL")
+        try:
+            m = archive.read_manifest(local)
+        except KitError:
+            try:
+                os.unlink(local)
+            except OSError:
+                pass
+            raise
+        return m.name, {"url": url, "checksum": sha}
+    if "#" in raw:
+        raise KitError("a #sha256 fragment only applies to URLs")
+    local = os.path.abspath(os.path.expanduser(raw))
+    if not os.path.isfile(local):
+        raise KitError(f"archive '{raw}' does not exist")
+    m = archive.read_manifest(local)
+    rel = os.path.relpath(local, project_root).replace(os.sep, "/")
+    return m.name, {"archive": rel, "checksum": archive.sha256_file(local)}
+
+
 def pick_requirement(registries: RegistrySet, name: str, explicit: Optional[str]) -> str:
     """The requirement string to write into kol.toml for ``name``."""
     entries = registries.entries(name)
@@ -196,6 +229,7 @@ def cmd_add(args) -> int:
     other = "dependencies" if args.dev else "dev-dependencies"
     text = original
     specs: List[Tuple[str, Optional[str], Optional[str]]] = []  # name, req, path
+    sources = {}  # name -> url/archive/checksum fields
 
     if args.path:
         if len(args.specs) > 1:
@@ -213,6 +247,11 @@ def cmd_add(args) -> int:
         if not args.specs:
             raise KitError("nothing to add", hint="usage: kit add <package>[@requirement] ... [--dev] [--path DIR]")
         for raw in args.specs:
+            if is_source_spec(raw):
+                name, fields = resolve_source_spec(raw, project.root)
+                sources[name] = fields
+                specs.append((name, None, None))
+                continue
             name, explicit = parse_spec(raw)
             req = pick_requirement(project.registries, name, explicit)
             specs.append((name, req, None))
@@ -223,8 +262,10 @@ def cmd_add(args) -> int:
         if other in manifest_edit.tables_with(text, name):
             text, _ = manifest_edit.remove_dependency(text, other, name)
             console.warn(f"'{name}' moved from [{other}] to [{table}]")
-        text = manifest_edit.set_dependency(text, table, name, req, path)
-        shown = f"path {path}" if path else req
+        src = sources.get(name, {})
+        text = manifest_edit.set_dependency(text, table, name, req, path, **src)
+        shown = f"path {path}" if path else (
+            f"from {src['url']}" if "url" in src else f"from {src['archive']}" if "archive" in src else req)
         console.status("Adding", f"{name} {shown} to [{table}]")
 
     project.write_manifest_text(text)
@@ -282,6 +323,11 @@ def _install_into(project: Project, specs: List[str], label: str) -> int:
     original = project.manifest.text
     text = original
     for raw in specs:
+        if is_source_spec(raw):
+            name, fields = resolve_source_spec(raw, project.root)
+            text = manifest_edit.set_dependency(text, "dependencies", name, None, None, **fields)
+            console.status("Adding", f"{name} from {raw.split('#')[0]} {label}")
+            continue
         name, explicit = parse_spec(raw)
         req = pick_requirement(project.registries, name, explicit)
         text = manifest_edit.set_dependency(text, "dependencies", name, req, None)

@@ -7,7 +7,7 @@ import subprocess
 import sys
 import time
 
-from . import build, config, lockfile, manifest as manifest_mod, paths, store
+from . import build, chibicc, config, lockfile, manifest as manifest_mod, paths, store
 from .errors import KitError
 from .project import Project, kol_version
 from .registry import DirectoryRegistry
@@ -22,8 +22,9 @@ def cmd_build(args) -> int:
         targets = [build.pick_bin(project, args.bin)] if (args.bin or len(targets) <= 1) else targets
     if not targets:
         raise KitError("nothing to build: no binary target", hint="create src/main.kol")
+    cc = build.resolve_cc(args.cc)
     for t in targets:
-        build.build_bin(project, t, args.release)
+        build.build_bin(project, t, args.release, cc)
     return 0
 
 
@@ -31,7 +32,10 @@ def cmd_run(args) -> int:
     project = Project.discover()
     build.ensure_synced(project)
     target = build.pick_bin(project, args.bin)
-    exe = build.build_bin(project, target, args.release)
+    if args.jit:
+        console.status("Running", f"{target.name} from memory (chibicc)")
+        return build.jit_run(project.manifest.abs(target.path), list(args.args))
+    exe = build.build_bin(project, target, args.release, build.resolve_cc(args.cc))
     console.status("Running", os.path.relpath(exe, os.getcwd()))
     sys.stdout.flush()
     return subprocess.run([exe] + list(args.args)).returncode
@@ -52,12 +56,13 @@ def cmd_test(args) -> int:
     if not tests:
         console.info("No tests found (put .kol programs in tests/, with optional .expected output files).")
         return 0
+    cc = build.resolve_cc(args.cc)
     passed = failed = 0
     start = time.time()
     failures = []
     for path in tests:
         rel = os.path.relpath(path, os.path.join(project.root, "tests"))
-        ok, detail = build.run_test(project, path, args.release)
+        ok, detail = build.run_test(project, path, args.release, cc)
         if ok:
             passed += 1
             console.out(f"test {rel} ... ok")
@@ -70,6 +75,49 @@ def cmd_test(args) -> int:
     console.out(f"\ntest result: {'ok' if not failed else 'FAILED'}. {passed} passed; {failed} failed "
                 f"({time.time() - start:.1f}s)")
     return 1 if failed else 0
+
+
+def cmd_jit(args) -> int:
+    """Compile and run one .kol file from memory using chibicc."""
+    path = os.path.abspath(args.file)
+    if not os.path.isfile(path):
+        raise KitError(f"file not found: {args.file}")
+    root = manifest_mod.find_root(os.path.dirname(path))
+    if root is not None:
+        build.ensure_synced(Project(manifest_mod.load(root)))
+    return build.jit_run(path, list(args.args))
+
+
+def cmd_chibicc(args) -> int:
+    action = args.action
+    if action == "setup":
+        exe = chibicc.setup(force=args.force)
+        console.out(exe)
+        return 0
+    info = chibicc.status()
+    if action == "path":
+        if not info["path"]:
+            raise KitError("chibicc is not installed", hint="run `kit chibicc setup`")
+        console.out(info["path"])
+        return 0
+    # status
+    if info["platform_problem"]:
+        console.out(f"unsupported platform: {info['platform_problem']}")
+        return 1
+    if not info["path"]:
+        console.out("chibicc: not installed")
+        console.out("  install it with `kit chibicc setup` (needs git, make and a C compiler)")
+        return 1
+    console.out(f"chibicc: {info['path']}")
+    if info["commit"]:
+        console.out(f"  source commit: {info['commit']}" + (" (pinned)" if info["commit"] == chibicc.PINNED_COMMIT else " (differs from the pinned commit)"))
+        console.out(f"  $TMPDIR patch: {'yes' if info['patched'] else 'no'}")
+    else:
+        console.out("  (not built by Kit: $TMPDIR is not honoured, so in-RAM runs also use /tmp for intermediates)")
+    if info["missing_tools"]:
+        console.out(f"  missing system tools: {', '.join(info['missing_tools'])} (install binutils)")
+        return 1
+    return 0
 
 
 def cmd_clean(args) -> int:
@@ -142,8 +190,16 @@ def cmd_doctor(args) -> int:
     console.out(f"kit {KIT_VERSION}")
     ok(f"python {sys.version.split()[0]} (TOML via {tomlio.backend()})")
     ok(f"kol compiler {kol_version()} at {paths.compiler_root()}")
-    cc = next((c for c in ("gcc", "clang", "tcc") if shutil.which(c)), None)
+    cc = next((c for c in ("gcc", "clang") if shutil.which(c)), None)
     (ok if cc else bad)(f"C compiler: {cc or 'none found (install gcc or clang)'}")
+
+    ci = chibicc.status()
+    if ci["path"]:
+        ok(f"chibicc (optional): {ci['path']}")
+    elif ci["platform_problem"]:
+        console.out(f"  --    chibicc not available here: {ci['platform_problem']}")
+    else:
+        console.out("  --    chibicc not installed (optional; `kit chibicc setup`)")
 
     home = paths.kit_home()
     try:

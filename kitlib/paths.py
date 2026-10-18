@@ -4,6 +4,7 @@
         config.toml        registry list
         registry/          the default local registry
         store/             unpacked packages, one directory per exact build
+        downloads/         archives fetched from URLs, named by sha256
         global/            pseudo-project behind ``kit install -g``
         projects.json      projects Kit has synced (used by cache pruning)
         .lock              cross-process lock for store/registry mutations
@@ -24,7 +25,7 @@ except ImportError:  # pragma: no cover - non-POSIX
     fcntl = None
 
 __all__ = [
-    "kit_home", "global_root", "store_dir", "default_registry_dir",
+    "kit_home", "global_root", "store_dir", "downloads_dir", "default_registry_dir",
     "config_file", "projects_file", "compiler_root", "FileLock",
     "atomic_write", "ensure_dir", "read_json", "write_json",
 ]
@@ -32,6 +33,11 @@ __all__ = [
 
 def store_dir() -> str:
     return os.path.join(kit_home(), "store")
+
+
+def downloads_dir() -> str:
+    """Cache of archives fetched from URLs, named by their sha256 (``<hex>.kitpkg``)."""
+    return os.path.join(kit_home(), "downloads")
 
 
 def default_registry_dir() -> str:

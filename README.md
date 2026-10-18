@@ -60,6 +60,7 @@ See [docs/concurrency.md](docs/concurrency.md) for the full guide,
 ```bash
 ./kit.py new myapp && cd myapp      # create a project
 kit add greeter                     # add a library from your registry
+kit add ./tool-1.0.0.kitpkg            # ...or from a .kitpkg file or https:// URL (checksum pinned)
 kit run                             # build and run
 ```
 

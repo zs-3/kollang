@@ -35,11 +35,22 @@ def _span(lines: List[str], table: str) -> Optional[Tuple[int, int]]:
     return None
 
 
-def format_dep(name: str, req: Optional[str], path: Optional[str]) -> str:
+def format_dep(name: str, req: Optional[str], path: Optional[str],
+               url: Optional[str] = None, archive: Optional[str] = None,
+               checksum: Optional[str] = None) -> str:
+    fields = []
+    if req and (path is not None or url is not None or archive is not None):
+        fields.append(f"version = {tomlio.quote(req)}")
     if path is not None:
-        if req:
-            return f"{name} = {{ version = {tomlio.quote(req)}, path = {tomlio.quote(path)} }}"
-        return f"{name} = {{ path = {tomlio.quote(path)} }}"
+        fields.append(f"path = {tomlio.quote(path)}")
+    if url is not None:
+        fields.append(f"url = {tomlio.quote(url)}")
+    if archive is not None:
+        fields.append(f"archive = {tomlio.quote(archive)}")
+    if checksum is not None:
+        fields.append(f"checksum = {tomlio.quote('sha256:' + checksum)}")
+    if fields:
+        return f"{name} = {{ " + ", ".join(fields) + " }"
     return f"{name} = {tomlio.quote(req or '*')}"
 
 
@@ -48,10 +59,12 @@ def _key_of(line: str) -> Optional[str]:
     return m.group(2) if m else None
 
 
-def set_dependency(text: str, table: str, name: str, req: Optional[str], path: Optional[str]) -> str:
+def set_dependency(text: str, table: str, name: str, req: Optional[str], path: Optional[str],
+                   url: Optional[str] = None, archive: Optional[str] = None,
+                   checksum: Optional[str] = None) -> str:
     """Add or replace ``name`` in ``[table]``; creates the table if needed."""
     lines = text.split("\n")
-    new_line = format_dep(name, req, path)
+    new_line = format_dep(name, req, path, url, archive, checksum)
     span = _span(lines, table)
     if span is None:
         while lines and lines[-1] == "":
