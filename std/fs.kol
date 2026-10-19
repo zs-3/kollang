@@ -1,0 +1,41 @@
+-- Filesystem helpers. Directory listing returns entry names, not full paths.
+extern fn kol_fs_is_file(path: str) -> bool from "kol_runtime"
+extern fn kol_fs_is_dir(path: str) -> bool from "kol_runtime"
+extern fn kol_fs_mkdirs(path: str) -> int from "kol_runtime"
+extern fn kol_fs_list_dir(path: str) -> [str] from "kol_runtime"
+extern fn kol_file_exists(path: str) -> bool from "kol_runtime"
+extern fn kol_file_size(path: str) -> int from "kol_runtime"
+extern fn kol_file_remove(path: str) -> bool from "kol_runtime"
+extern fn kol_file_rename(src: str, dst: str) -> bool from "kol_runtime"
+
+fn fs_is_file(path: str) -> bool
+    return kol_fs_is_file(path)
+end
+
+fn fs_is_dir(path: str) -> bool
+    return kol_fs_is_dir(path)
+end
+
+fn fs_exists(path: str) -> bool
+    return kol_file_exists(path) or kol_fs_is_dir(path)
+end
+
+fn fs_size(path: str) -> int
+    return kol_file_size(path)
+end
+
+fn fs_list_dir(path: str) -> [str]
+    return kol_fs_list_dir(path)
+end
+
+fn fs_mkdirs(path: str) -> bool
+    return kol_fs_mkdirs(path) == 0
+end
+
+fn fs_remove_file(path: str) -> bool
+    return kol_file_remove(path)
+end
+
+fn fs_rename(src: str, dst: str) -> bool
+    return kol_file_rename(src, dst)
+end
