@@ -1,0 +1,47 @@
+-- UTC Unix timestamp helpers. Timestamp units are seconds unless named otherwise.
+use std.time
+use std.format
+
+fn datetime_now_unix() -> int
+    return now_unix()
+end
+
+fn datetime_now_ms() -> int
+    return now_ms()
+end
+
+fn datetime_year(timestamp: int) -> int
+    return year_of(timestamp)
+end
+
+fn datetime_month(timestamp: int) -> int
+    return month_of(timestamp)
+end
+
+fn datetime_day(timestamp: int) -> int
+    return day_of(timestamp)
+end
+
+fn datetime_hour(timestamp: int) -> int
+    return hour_of(timestamp)
+end
+
+fn datetime_minute(timestamp: int) -> int
+    return minute_of(timestamp)
+end
+
+fn datetime_second(timestamp: int) -> int
+    return second_of(timestamp)
+end
+
+fn datetime_iso8601(timestamp: int) -> str
+    return format_iso(timestamp)
+end
+
+fn datetime_is_leap_year(year: int) -> bool
+    return is_leap_year(year)
+end
+
+fn datetime_days_in_month(year: int, month: int) -> int
+    return days_in_month(year, month)
+end
