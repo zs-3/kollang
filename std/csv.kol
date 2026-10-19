@@ -1,0 +1,110 @@
+-- CSV helpers. Handles quoted fields, escaped double quotes, CRLF and embedded newlines.
+fn csv_parse_row(line: str) -> [str]
+    mut fields: [str] = []
+    mut field = ""
+    mut quoted = false
+    mut i = 0
+    while i < line.len()
+        let ch = line.slice(i, i + 1)
+        if quoted
+            if ch == "\""
+                if i + 1 < line.len() and line.slice(i + 1, i + 2) == "\""
+                    field = field + "\""
+                    i = i + 1
+                else
+                    quoted = false
+                end
+            else
+                field = field + ch
+            end
+        else
+            if ch == ","
+                fields.push(field)
+                field = ""
+            elif ch == "\""
+                and field.len() == 0
+                quoted = true
+            else
+                field = field + ch
+            end
+        end
+        i = i + 1
+    end
+    fields.push(field)
+    return fields
+end
+
+fn csv_escape_field(value: str) -> str
+    if value.contains(",") or value.contains("\"") or value.contains("\n") or value.contains("\r")
+        return "\"" + value.replace("\"", "\"\"") + "\""
+    end
+    return value
+end
+
+fn csv_encode_row(fields: [str]) -> str
+    mut out = ""
+    mut first = true
+    for field in fields
+        if not first out = out + "," end
+        out = out + csv_escape_field(field)
+        first = false
+    end
+    return out
+end
+
+fn csv_parse_document(document: str) -> [[str]]
+    mut rows: [[str]] = []
+    mut row: [str] = []
+    mut field = ""
+    mut quoted = false
+    mut i = 0
+    while i < document.len()
+        let ch = document.slice(i, i + 1)
+        if quoted
+            if ch == "\""
+                if i + 1 < document.len() and document.slice(i + 1, i + 2) == "\""
+                    field = field + "\""
+                    i = i + 1
+                else
+                    quoted = false
+                end
+            else
+                field = field + ch
+            end
+        else
+            if ch == "\"" and field.len() == 0
+                quoted = true
+            elif ch == ","
+                row.push(field)
+                field = ""
+            elif ch == "\n" or ch == "\r"
+                row.push(field)
+                rows.push(row)
+                row = []
+                field = ""
+                if ch == "\r" and i + 1 < document.len() and document.slice(i + 1, i + 2) == "\n"
+                    i = i + 1
+                end
+            else
+                field = field + ch
+            end
+        end
+        i = i + 1
+    end
+    if field.len() > 0 or row.len() > 0 or document.len() == 0
+        row.push(field)
+        rows.push(row)
+    end
+    return rows
+end
+
+fn csv_encode_document(rows: [[str]]) -> str
+    mut out = ""
+    mut first = true
+    for row in rows
+        if not first out = out + "\r\n" end
+        out = out + csv_encode_row(row)
+        first = false
+    end
+    return out
+end
