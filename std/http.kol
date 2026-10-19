@@ -1,0 +1,56 @@
+-- Minimal HTTP/1.0 client and server primitives. Client currently supports plain HTTP, not TLS.
+extern fn kol_http_get_raw(url: str, timeout_ms: int) -> str from "kol_runtime"
+extern fn kol_net_send(socket: int, data: str) -> int from "kol_runtime"
+extern fn kol_net_recv(socket: int, max_bytes: int) -> str from "kol_runtime"
+extern fn kol_net_close(socket: int) from "kol_runtime"
+use std.str
+use std.convert
+
+fn http_get_raw(url: str, timeout_ms: int) -> str
+    return kol_http_get_raw(url, timeout_ms)
+end
+fn http_status_code(response: str) -> int
+    let first_space = index_of(response, " ")
+    if first_space < 0 return -1 end
+    let code_text = response.slice(first_space + 1, first_space + 4)
+    return str_to_int(code_text) or -1
+end
+fn http_header(response: str, name: str) -> str
+    let boundary = index_of(response, "\r\n\r\n")
+    if boundary < 0 return "" end
+    let head = response.slice(0, boundary)
+    let lines = head.split("\n")
+    let wanted = name.lower() + ":"
+    for line in lines
+        let clean = line.trim()
+        if clean.lower().starts_with(wanted)
+            return clean.slice(wanted.len(), clean.len()).trim()
+        end
+    end
+    return ""
+end
+fn http_body(response: str) -> str
+    let boundary = index_of(response, "\r\n\r\n")
+    if boundary < 0 return "" end
+    return response.slice(boundary + 4, response.len())
+end
+fn http_make_response(status: int, reason: str, content_type: str, body: str) -> str
+    return "HTTP/1.1 {status} {reason}\r\nContent-Type: {content_type}\r\nContent-Length: {body.len()}\r\nConnection: close\r\n\r\n{body}"
+end
+fn http_send_response(socket: int, status: int, reason: str, content_type: str, body: str) -> int
+    let response = http_make_response(status, reason, content_type, body)
+    let sent = kol_net_send(socket, response)
+    kol_net_close(socket)
+    return sent
+end
+fn http_read_request(socket: int, max_bytes: int) -> str
+    return kol_net_recv(socket, max_bytes)
+end
+extern fn kol_net_listen(port: int, backlog: int) -> int from "kol_runtime"
+extern fn kol_net_accept(listener: int) -> int from "kol_runtime"
+fn http_listen(port: int, backlog: int) -> int
+    return kol_net_listen(port, backlog)
+end
+fn http_accept(listener: int) -> int
+    return kol_net_accept(listener)
+end
