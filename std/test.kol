@@ -1,0 +1,47 @@
+-- Lightweight assertion helpers for standalone test programs.
+extern fn kol_exit(code: int) from "kol_runtime"
+-- For named test cases and test reports, use the language-level test blocks.
+fn test_assert_true(condition: bool, label: str)
+    if not condition
+        print("ASSERTION FAILED: " + label)
+        kol_exit(1)
+    else
+        print("PASS " + label)
+    end
+end
+
+fn test_assert_false(condition: bool, label: str)
+    if condition
+        print("ASSERTION FAILED: " + label)
+        kol_exit(1)
+    else
+        print("PASS " + label)
+    end
+end
+
+fn test_assert_eq_int(actual: int, expected: int, label: str)
+    if actual != expected
+        print("ASSERTION FAILED: " + label)
+        kol_exit(1)
+    else
+        print("PASS " + label)
+    end
+end
+
+fn test_assert_eq_str(actual: str, expected: str, label: str)
+    if actual != expected
+        print("ASSERTION FAILED: " + label)
+        kol_exit(1)
+    else
+        print("PASS " + label)
+    end
+end
+
+fn test_assert_eq_bool(actual: bool, expected: bool, label: str)
+    if actual != expected
+        print("ASSERTION FAILED: " + label)
+        kol_exit(1)
+    else
+        print("PASS " + label)
+    end
+end
