@@ -1,0 +1,67 @@
+use std.convert
+-- JSON utilities. Raw-value access returns the exact JSON token; empty string means missing/invalid.
+extern fn kol_json_is_valid(json: str) -> bool from "kol_runtime"
+extern fn kol_json_quote(value: str) -> str from "kol_runtime"
+extern fn kol_json_get_raw(json: str, key: str) -> str from "kol_runtime"
+extern fn kol_json_get_string(json: str, key: str) -> str from "kol_runtime"
+extern fn kol_json_array_len(json: str) -> int from "kol_runtime"
+extern fn kol_json_array_get_raw(json: str, index: int) -> str from "kol_runtime"
+
+fn json_is_valid(value: str) -> bool
+    return kol_json_is_valid(value)
+end
+fn json_quote(value: str) -> str
+    return kol_json_quote(value)
+end
+fn json_string(value: str) -> str
+    return kol_json_quote(value)
+end
+fn json_get_raw(value: str, key: str) -> str
+    return kol_json_get_raw(value, key)
+end
+fn json_get_string(value: str, key: str) -> str
+    return kol_json_get_string(value, key)
+end
+fn json_get_int(value: str, key: str) -> int!
+    let raw_value = kol_json_get_raw(value, key)
+    if raw_value.len() == 0 fail "JSON key not found or invalid" end
+    if raw_value == "null" or raw_value == "true" or raw_value == "false" fail "JSON value is not an integer" end
+    if raw_value.contains(".") or raw_value.contains("e") or raw_value.contains("E") fail "JSON value is not an integer" end
+    return str_to_int(raw_value)
+end
+fn json_get_float(value: str, key: str) -> float!
+    let raw_value = kol_json_get_raw(value, key)
+    if raw_value.len() == 0 fail "JSON key not found or invalid" end
+    return str_to_float(raw_value)
+end
+fn json_get_bool(value: str, key: str) -> bool!
+    let raw_value = kol_json_get_raw(value, key)
+    if raw_value == "true" return true end
+    if raw_value == "false" return false end
+    fail "JSON key not found or value is not a boolean"
+end
+fn json_array_len(value: str) -> int
+    return kol_json_array_len(value)
+end
+fn json_array_get_raw(value: str, index: int) -> str
+    return kol_json_array_get_raw(value, index)
+end
+fn json_has_key(value: str, key: str) -> bool
+    return kol_json_get_raw(value, key).len() > 0
+end
+fn json_object_field(value: str, key: str, encoded_value: str) -> str
+    if value.len() > 0 and value.slice(value.len() - 1, value.len()) == "\}"
+        let prefix = value.slice(0, value.len() - 1)
+        if prefix.trim().ends_with("\{") return prefix + json_quote(key) + ":" + encoded_value + "\}" end
+        return prefix + "," + json_quote(key) + ":" + encoded_value + "\}"
+    end
+    return "\{" + json_quote(key) + ":" + encoded_value + "\}"
+end
+fn json_array_push(value: str, encoded_value: str) -> str
+    if value.len() > 0 and value.slice(value.len() - 1, value.len()) == "]"
+        let prefix = value.slice(0, value.len() - 1)
+        if prefix.trim().ends_with("[") return prefix + encoded_value + "]" end
+        return prefix + "," + encoded_value + "]"
+    end
+    return "[" + encoded_value + "]"
+end
