@@ -1,0 +1,22 @@
+-- Small structured logger. Defaults to stderr; no global mutable log state.
+extern fn kol_eprint_line(s: str) from "kol_runtime"
+
+fn log_debug(message: str)
+    kol_eprint_line("[DEBUG] " + message)
+end
+
+fn log_info(message: str)
+    kol_eprint_line("[INFO] " + message)
+end
+
+fn log_warn(message: str)
+    kol_eprint_line("[WARN] " + message)
+end
+
+fn log_error(message: str)
+    kol_eprint_line("[ERROR] " + message)
+end
+
+fn log_with_level(level: str, message: str)
+    kol_eprint_line("[" + level.upper() + "] " + message)
+end
