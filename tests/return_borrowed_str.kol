@@ -1,0 +1,43 @@
+-- Returning a str parameter (or a struct field / list element) hands the caller
+-- its own reference; the original owner must stay valid.
+type Box
+    name: str
+end
+
+fn pass_through(s: str) -> str
+    return s
+end
+
+fn pass_if(s: str, n: int) -> str
+    if n < 0
+        return s
+    end
+    return s + "!"
+end
+
+fn name_of(b: Box) -> str
+    return b.name
+end
+
+fn first_of(items: [str]) -> str
+    return items[0]
+end
+
+fn main()
+    let base = "abc" + "def"
+    let a = pass_through(base)
+    let b = pass_if(base, -1)
+    let c = pass_if(base, 1)
+    print(a)
+    print(b)
+    print(c)
+    print(base)
+    let box = Box(name: "bo" + "x")
+    let n = name_of(box)
+    print(n)
+    print(box.name)
+    let items = ["x" + "1", "y" + "2"]
+    let f = first_of(items)
+    print(f)
+    print(items[0])
+end

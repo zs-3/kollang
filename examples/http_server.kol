@@ -1,0 +1,17 @@
+-- Minimal one-request HTTP server: run, then visit http://127.0.0.1:8080/
+use std.http
+use std.net
+
+let listener = http_listen(8080, 16)
+if listener < 0
+    print("Could not listen on port 8080")
+else
+    print("Listening on http://127.0.0.1:8080/")
+    let client = http_accept(listener)
+    if client >= 0
+        let request = http_read_request(client, 8192)
+        print(request)
+        http_send_response(client, 200, "OK", "text/plain; charset=utf-8", "Hello from KOL!\n")
+    end
+    net_close(listener)
+end

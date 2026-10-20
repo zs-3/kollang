@@ -1,0 +1,3 @@
+print("abcabc".index_of("bc"))
+print("abcabc".last_index_of("bc"))
+print("prefix".slice(0, 3).index_of("re"))

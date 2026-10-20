@@ -1,0 +1,3 @@
+use std.crypto
+print(sha256("abc"))
+print(md5("abc"))

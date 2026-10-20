@@ -1,0 +1,13 @@
+use std.ini
+use std.core
+
+let document = "# sample\n[app]\nname = Kol\nport=8080\nempty=\n\n[database]\nhost=localhost\nport=5432\n"
+assert_eq_str(ini_get(document, "app", "name"), "Kol", "INI trimmed value")
+assert_eq_str(ini_get(document, "database", "host"), "localhost", "INI section lookup")
+assert_eq_str(ini_get(document, "app", "missing"), "", "INI missing key")
+assert_eq_str(ini_get_or(document, "app", "missing", "fallback"), "fallback", "INI fallback")
+assert_eq_bool(ini_has_key(document, "database", "port"), true, "INI has key")
+assert_eq_bool(ini_section_exists(document, "database"), true, "INI section exists")
+assert_eq_bool(ini_section_exists(document, "missing"), false, "INI missing section")
+assert_eq_int(ini_keys(document, "database").len(), 2, "INI keys")
+print("INI TESTS PASSED")

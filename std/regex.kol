@@ -1,0 +1,29 @@
+-- Regular expressions use the platform POSIX Extended Regular Expression engine.
+-- Patterns are not guaranteed to run in linear time; validate untrusted patterns accordingly.
+extern fn kol_regex_is_match(pattern: str, input: str, insensitive: bool) -> bool from "kol_runtime"
+extern fn kol_regex_find(pattern: str, input: str, insensitive: bool) -> str from "kol_runtime"
+extern fn kol_regex_replace_all(pattern: str, input: str, replacement: str, insensitive: bool) -> str from "kol_runtime"
+
+fn regex_is_match(pattern: str, input: str) -> bool
+    return kol_regex_is_match(pattern, input, false)
+end
+
+fn regex_is_match_i(pattern: str, input: str) -> bool
+    return kol_regex_is_match(pattern, input, true)
+end
+
+fn regex_find(pattern: str, input: str) -> str
+    return kol_regex_find(pattern, input, false)
+end
+
+fn regex_find_i(pattern: str, input: str) -> str
+    return kol_regex_find(pattern, input, true)
+end
+
+fn regex_replace_all(pattern: str, input: str, replacement: str) -> str
+    return kol_regex_replace_all(pattern, input, replacement, false)
+end
+
+fn regex_replace_all_i(pattern: str, input: str, replacement: str) -> str
+    return kol_regex_replace_all(pattern, input, replacement, true)
+end

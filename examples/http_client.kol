@@ -1,0 +1,6 @@
+-- Plain HTTP only; HTTPS/TLS is not supported by this minimal client.
+use std.http
+
+let response = http_get_raw("http://example.com/", 5000)
+print(http_status_code(response))
+print(http_body(response))

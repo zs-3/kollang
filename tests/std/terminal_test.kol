@@ -1,0 +1,9 @@
+use std.terminal
+use std.core
+
+assert_eq_bool(term_red("x").starts_with(char_from_code(27) + "[31m"), true, "ANSI red prefix")
+assert_eq_bool(term_red("x").ends_with(char_from_code(27) + "[0m"), true, "ANSI reset suffix")
+assert_eq_bool(term_cursor_to(0, 2) == "", true, "reject invalid cursor position")
+assert_eq_bool(term_cursor_to(1, 2).contains("[1;2H"), true, "cursor position")
+assert_eq_bool(term_style_if("plain", 31, false) == "plain", true, "disabled style")
+print("TERMINAL TESTS PASSED")

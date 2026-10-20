@@ -1,0 +1,11 @@
+-- Process helpers. Commands are interpreted by the system shell; never pass untrusted input.
+extern fn kol_process_status(command: str) -> int from "kol_runtime"
+extern fn kol_process_output(command: str) -> str from "kol_runtime"
+
+fn process_run(command: str) -> int
+    return kol_process_status(command)
+end
+
+fn process_output(command: str) -> str
+    return kol_process_output(command)
+end

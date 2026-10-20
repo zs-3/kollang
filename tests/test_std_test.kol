@@ -1,0 +1,6 @@
+use std.test
+test_assert_true(2 + 2 == 4, "arithmetic")
+test_assert_false(2 + 2 == 5, "negative arithmetic")
+test_assert_eq_int(3 * 7, 21, "integer equality")
+test_assert_eq_str("kol", "kol", "string equality")
+test_assert_eq_bool(true, true, "boolean equality")

@@ -1,0 +1,5 @@
+PASS arithmetic
+PASS negative arithmetic
+PASS integer equality
+PASS string equality
+PASS boolean equality

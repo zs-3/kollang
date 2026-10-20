@@ -1,0 +1,10 @@
+when PLATFORM == "linux" and ARCH == "x86_64"
+    print("linux-x86_64")
+else
+    print("other")
+end
+when not (PLATFORM == "windows")
+    print("not-windows")
+else
+    print("windows")
+end

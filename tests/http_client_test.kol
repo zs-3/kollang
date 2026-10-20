@@ -1,0 +1,7 @@
+use std.args
+use std.http
+
+let argv = args()
+let response = http_get_raw(arg_at(0), 2000)
+print(http_status_code(response))
+print(http_body(response))

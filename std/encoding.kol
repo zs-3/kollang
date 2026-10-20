@@ -84,34 +84,104 @@ fn base64_decode(s: str) -> str!
     mut out = ""
     mut i = 0
     while i < n
+        let last_block = i + 4 == n
+        let c0: str = s.slice(i, i + 1)
+        let c1: str = s.slice(i + 1, i + 2)
+        let c2: str = s.slice(i + 2, i + 3)
+        let c3: str = s.slice(i + 3, i + 4)
+        if c0 == "=" or c1 == "="
+            fail "invalid base64 padding"
+        end
+        let v0 = kol_str_find(table, c0, 0)
+        let v1 = kol_str_find(table, c1, 0)
+        if v0 < 0 or v1 < 0
+            fail "invalid base64 character"
+        end
+        mut v2 = 0
+        mut v3 = 0
         mut pad = 0
-        mut acc = 0
-        mut k = 0
-        while k < 4
-            let ch: str = s.slice(i + k, i + k + 1)
-            if ch == "="
-                pad = pad + 1
-                acc = acc * 64
+        if c2 == "="
+            if not last_block or c3 != "="
+                fail "invalid base64 padding"
+            end
+            pad = 2
+            if v1 mod 16 != 0
+                fail "non-canonical base64 padding bits"
+            end
+        else
+            v2 = kol_str_find(table, c2, 0)
+            if v2 < 0
+                fail "invalid base64 character"
+            end
+            if c3 == "="
+                if not last_block
+                    fail "invalid base64 padding"
+                end
+                pad = 1
+                if v2 mod 4 != 0
+                    fail "non-canonical base64 padding bits"
+                end
             else
-                let v = kol_str_find(table, ch, 0)
-                if v < 0
+                v3 = kol_str_find(table, c3, 0)
+                if v3 < 0
                     fail "invalid base64 character"
                 end
-                acc = acc * 64 + v
             end
-            k = k + 1
         end
-        out = out + kol_chr(acc / 65536)
+        let triple = v0 * 262144 + v1 * 4096 + v2 * 64 + v3
+        out = out + kol_chr(triple / 65536)
         if pad < 2
-            out = out + kol_chr((acc / 256) mod 256)
+            out = out + kol_chr((triple / 256) mod 256)
         end
         if pad < 1
-            out = out + kol_chr(acc mod 256)
+            out = out + kol_chr(triple mod 256)
         end
         i = i + 4
     end
     return out
 end
+
+
+-- URL-safe Base64 uses '-' and '_' instead of '+' and '/' and permits
+-- omitted padding. When padding is supplied, it must be canonical.
+fn base64url_encode(s: str) -> str
+    return base64_encode(s).replace("+", "-").replace("/", "_").replace("=", "")
+end
+
+fn base64url_decode(s: str) -> str!
+    let n = s.len()
+    let has_padding = s.contains("=")
+    if has_padding and n mod 4 != 0
+        fail "invalid base64url padding length"
+    end
+    if n mod 4 == 1
+        fail "invalid base64url length"
+    end
+    mut i = 0
+    mut saw_padding = false
+    while i < n
+        let c: str = s.slice(i, i + 1)
+        if c == "="
+            saw_padding = true
+        else
+            if saw_padding
+                fail "invalid base64url padding"
+            end
+            if not is_alnum_char(c) and c != "-" and c != "_"
+                fail "invalid base64url character"
+            end
+        end
+        i = i + 1
+    end
+    mut normalized = s.replace("-", "+").replace("_", "/")
+    if not has_padding
+        while normalized.len() mod 4 != 0
+            normalized = normalized + "="
+        end
+    end
+    return base64_decode(normalized)?
+end
+
 
 fn url_is_safe(c: str) -> bool
     if is_alnum_char(c) return true end
@@ -150,7 +220,7 @@ fn url_decode(s: str) -> str!
     while i < up.len()
         let c: str = up.slice(i, i + 1)
         if c == "%"
-            if i + 2 >= up.len() + 0 and i + 2 > up.len() - 1
+            if i + 2 >= up.len()
                 fail "truncated percent escape"
             end
             let hi = kol_str_find(digits, up.slice(i + 1, i + 2).upper(), 0)

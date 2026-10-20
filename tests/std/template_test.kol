@@ -1,0 +1,9 @@
+use std.template
+use std.core
+
+assert_eq_str(template_render("Hello, \{name\}!", ["name"], ["Kol"]), "Hello, Kol!", "template replacement")
+assert_eq_str(template_render("\{a\}/\{b\}/\{missing\}", ["a", "b"], ["one", "two"]), "one/two/\{missing\}", "unknown placeholder retained")
+assert_eq_str(template_render("\{x\}", ["x"], ["\{y\}"]), "\{y\}", "values are not recursively expanded")
+assert_eq_bool(template_has_placeholder("Hi \{name\}", "name"), true, "placeholder detection")
+assert_eq_str(template_escape_html("<&\"'"), "&lt;&amp;&quot;&#39;", "HTML escaping")
+print("TEMPLATE TESTS PASSED")

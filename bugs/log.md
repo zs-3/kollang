@@ -87,3 +87,14 @@ Tests: `tests/test_kit.py` (53+ cases, also run with the fallback TOML parser on
 ## Feature — Kit: dependencies from `.kitpkg` files and URLs, optional chibicc
 `kit add`/`kit install` accept a `.kitpkg` path or an http(s) URL (`#sha256=` supported); `kol.toml` gains `url`/`archive`/`checksum` dependency keys, locked as `url+…`/`archive+…` with sha256 and verified on every install. `kit jit`, `kit run --jit` and `--cc chibicc` compile with an optionally installed chibicc in RAM. Kol's runtime/concurrency/atomics were NOT changed (chibicc gets a Kit-side compat header).
 Tests: `tests/test_kit_sources.py` (11 cases, local HTTP server), `tests/test_kit_chibicc.py` (17 cases).
+
+## Bug #16 — returning a `str` parameter, field or element caused a double release (use-after-free)
+Description: `fn f(s: str) -> str  return s end` returned the caller's own reference without retaining it, so the caller released it twice (its own variable and the returned value). Lists were already cloned in this case; `str` and handle objects were not. Found by AddressSanitizer on `std.url` (`url_strip_fragment`); it reproduces on the default branch.
+Fix: `ReturnStmt` codegen retains a returned `str` / handle that is borrowed and not a local variable (`compiler/codegen.py`).
+Test: `tests/return_borrowed_str.kol` (ASan-clean; fails with a heap-use-after-free if the fix is removed).
+
+## Note — chibicc and the new runtime
+The stdlib runtime now includes `<regex.h>`, which chibicc cannot parse. `kitlib/chibicc_compat.h` supplies the few declarations the runtime uses (x86-64 glibc layout); the runtime itself is unchanged.
+
+## Known issue (unchanged, pre-existing)
+`tests/concurrency_std_interop.kol` still reports a heap-use-after-free in `kol_future_wait` under ASan on the default branch (see the earlier note about `kol_future_wait`). Not touched here.

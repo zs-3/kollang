@@ -1,0 +1,42 @@
+use std.csv
+use std.core
+
+let simple = csv_parse_row("name,age,city")
+assert_eq_int(simple.len(), 3, "simple row fields")
+assert_eq_str(simple[0], "name", "simple first field")
+assert_eq_str(simple[2], "city", "simple last field")
+
+let quoted = csv_parse_row("one,\"two, too\",\"say \"\"hi\"\"\"")
+assert_eq_int(quoted.len(), 3, "quoted row fields")
+assert_eq_str(quoted[1], "two, too", "quoted comma")
+assert_eq_str(quoted[2], "say \"hi\"", "escaped quote")
+
+let trailing = csv_parse_row("a,b,")
+assert_eq_int(trailing.len(), 3, "trailing delimiter keeps empty field")
+assert_eq_str(trailing[2], "", "trailing empty field")
+
+mut row: [str] = []
+row.push("Alice")
+row.push("a,b")
+row.push("say \"hello\"")
+let encoded_row = csv_encode_row(row)
+let decoded_row = csv_parse_row(encoded_row)
+assert_eq_int(decoded_row.len(), 3, "row round trip field count")
+assert_eq_str(decoded_row[1], "a,b", "row round trip comma")
+assert_eq_str(decoded_row[2], "say \"hello\"", "row round trip quote")
+
+let document = "name,city,note\r\nAlice,London,\"line one\nline two\"\r\nBob,Paris,ok\r\n"
+let rows = csv_parse_document(document)
+assert_eq_int(rows.len(), 3, "document rows with CRLF and final newline")
+assert_eq_int(rows[1].len(), 3, "multiline row columns")
+assert_eq_str(rows[1][2], "line one\nline two", "multiline quoted field")
+assert_eq_str(csv_document_get(document, 0, "name"), "Alice", "header lookup first row")
+assert_eq_str(csv_document_get(document, 1, "city"), "Paris", "header lookup second row")
+assert_eq_str(csv_document_get_or(document, 9, "city", "missing"), "missing", "missing row fallback")
+assert_eq_str(csv_document_get_or(document, 0, "missing", "n/a"), "n/a", "missing column fallback")
+
+let round_trip = csv_encode_document(rows)
+let rows_again = csv_parse_document(round_trip)
+assert_eq_int(rows_again.len(), 3, "document round trip row count")
+assert_eq_str(rows_again[1][2], "line one\nline two", "document round trip multiline")
+print("CSV TESTS PASSED")

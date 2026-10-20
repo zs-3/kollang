@@ -1,0 +1,19 @@
+use std.semver
+use std.core
+
+assert_eq_bool(semver_is_valid("1.2.3"), true, "stable version")
+assert_eq_bool(semver_is_valid("v1.2.3-rc.1+build.7"), true, "prefixed prerelease and metadata")
+assert_eq_bool(semver_is_valid("01.2.3"), false, "reject leading zero in core")
+assert_eq_bool(semver_is_valid("1.2"), false, "require three core numbers")
+assert_eq_bool(semver_is_valid("1.2.3-01"), false, "reject numeric prerelease leading zero")
+assert_eq_bool(semver_is_valid("1.2.3+build..bad"), false, "reject empty metadata identifier")
+assert_eq_int(semver_major("2.7.10"), 2, "major")
+assert_eq_int(semver_minor("2.7.10"), 7, "minor")
+assert_eq_int(semver_patch("2.7.10"), 10, "patch")
+assert_eq_int((semver_compare("1.9.0", "1.10.0") or -99), -1, "numeric core comparison")
+assert_eq_int((semver_compare("1.0.0-alpha", "1.0.0-alpha.1") or -99), -1, "prerelease shorter list")
+assert_eq_int((semver_compare("1.0.0-alpha.2", "1.0.0-alpha.10") or -99), -1, "numeric prerelease comparison")
+assert_eq_int((semver_compare("1.0.0-1", "1.0.0-alpha") or -99), -1, "numeric identifier precedes text")
+assert_eq_int((semver_compare("1.0.0-rc.1", "1.0.0") or -99), -1, "release follows prerelease")
+assert_eq_int((semver_compare("1.0.0+abc", "1.0.0+xyz") or -99), 0, "build metadata ignored")
+print("SEMVER TESTS PASSED")

@@ -1,11 +1,11 @@
 # Kol Programming Language
 
-Kol is a new, lightweight, safe systems programming language designed for ultimate simplicity, C-level speed, and automatic memory safety.
+Kol is a lightweight systems programming language designed for simple syntax, native performance through a C99 backend, and a memory-conscious runtime.
 
 ## Features
 - **Easy**: Reads like BASIC/pseudocode, beginner friendly.
 - **Fast**: Compiles directly to native machine code via C99 backend.
-- **Safe**: Built-in memory safety with Automatic Reference Counting (ARC), SSO strings, and Arena allocators.
+- **Memory-conscious**: Automatic Reference Counting (ARC), small-string optimization (SSO), and arena allocators. As with any systems language, runtime safety depends on the correctness of compiler and runtime code.
 
 ## Quick Start
 
@@ -26,6 +26,22 @@ end
 
 let result = add(10, 20)
 print("Result: {result}")
+```
+
+## Standard library
+
+The `std/` modules cover core utilities, collections, strings, numeric helpers, encoding, statistics, JSON utilities, regular expressions, CSV, URL handling, UUIDs, SHA-256/MD5 digests, date/time helpers, CLI argument parsing, filesystem and process operations, logging, TCP/UDP networking and basic HTTP/1.x primitives. The expanded helpers add INI reading, input validation, ANSI terminal styling, single-pass templates, SemVer validation/comparison, strict Base64URL handling, typed JSON builders, and query-parameter append/remove/set helpers. See [std/README.md](std/README.md) for APIs and portability/security caveats.
+
+KOL also supports raw string literals with backticks and command-line arguments via `use std.args` (`args()`, `arg_count()`, `arg_at(index)`).
+
+```kol
+use std.json
+use std.args
+
+print(json_quote("hello"))
+for arg in args()
+    print(arg)
+end
 ```
 
 ## Concurrency
@@ -91,4 +107,6 @@ This version works offline (directory registries); online support is next.
 ./kol.py run tests/generics.kol
 ./kol.py run tests/fibonacci.kol
 ./kol.py run tests/stress.kol
+./kol.py run tests/std_new.kol
+./kol.py run tests/crypto_vectors.kol
 ```

@@ -1,0 +1,28 @@
+use std.core
+
+mut first_row: [int] = []
+first_row.push(1)
+first_row.push(2)
+mut matrix: [[int]] = []
+matrix.push(first_row)
+first_row.push(3)
+assert_eq_int(matrix.len(), 1, "nested matrix row count")
+assert_eq_int(matrix[0].len(), 2, "nested push copies row")
+assert_eq_int(matrix[0][0], 1, "nested first value")
+assert_eq_int(matrix[0][1], 2, "nested second value")
+matrix[0].push(4)
+assert_eq_int(matrix[0].len(), 3, "nested row can be mutated through index")
+assert_eq_int(first_row.len(), 3, "source row remains independent")
+
+let literal_matrix: [[int]] = [[10, 20], [30, 40]]
+assert_eq_int(literal_matrix[0][1], 20, "nested literal first row")
+assert_eq_int(literal_matrix[1][0], 30, "nested literal second row")
+
+let float_matrix: [[float]] = [[1.5, 2.5], [3.5]]
+assert_eq_float(float_matrix[0][1], 2.5, 0.000001, "nested float arrays")
+assert_eq_float(float_matrix[1][0], 3.5, 0.000001, "nested float ragged row")
+
+let bool_matrix: [[bool]] = [[true, false], [false, true]]
+assert_eq_bool(bool_matrix[0][0], true, "nested bool arrays true")
+assert_eq_bool(bool_matrix[1][1], true, "nested bool arrays second row")
+print("NESTED ARRAY TESTS PASSED")
