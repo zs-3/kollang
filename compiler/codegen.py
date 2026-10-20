@@ -1018,6 +1018,15 @@ class Codegen:
                         # the caller owns parameters / elements: return our own copy
                         val = self._array_clone_expr(val, t_inf)
                 self._emit(f"{ret_type_c} _kol_ret_val = {val};")
+                if self._is_borrowed(stmt.value):
+                    is_local_ret = isinstance(stmt.value, Ident) and self._is_local_var(stmt.value.name)
+                    if not is_local_ret:
+                        # Parameters, fields and elements stay owned by the caller/container:
+                        # the returned value needs its own reference (the caller releases it).
+                        if t_inf == "str":
+                            self._emit("kol_arc_retain_str(_kol_ret_val);")
+                        elif self._is_handle_key(t_inf):
+                            self._emit("kol_obj_retain(_kol_ret_val);")
                 self._emit_all_active_scope_cleanups(skip_var=ret_var)
                 if current_fn_fallible:
                     if t_inf.startswith("list"): self._emit("return kol_result_ok_arr(_kol_ret_val);")
