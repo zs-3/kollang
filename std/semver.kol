@@ -1,0 +1,164 @@
+-- Semantic version helpers (SemVer 2.0.0 syntax and precedence for 64-bit core numbers).
+-- Build metadata is validated but ignored for precedence, as required by SemVer.
+use std.str
+use std.convert
+
+fn semver_numeric(value: str) -> bool
+    if value.len() == 0 return false end
+    mut i = 0
+    while i < value.len()
+        let code = char_code(value.slice(i, i + 1))
+        if code < 48 or code > 57 return false end
+        i = i + 1
+    end
+    return true
+end
+
+fn semver_identifiers_valid(value: str, prerelease: bool) -> bool
+    if value.len() == 0 return false end
+    let parts = value.split(".")
+    for part in parts
+        if part.len() == 0 return false end
+        mut all_digits = true
+        mut i = 0
+        while i < part.len()
+            let ch = part.slice(i, i + 1)
+            let code = char_code(ch)
+            let is_alpha_num = (code >= 48 and code <= 57) or (code >= 65 and code <= 90) or (code >= 97 and code <= 122)
+            if not is_alpha_num and ch != "-" return false end
+            if code < 48 or code > 57 all_digits = false end
+            i = i + 1
+        end
+        if prerelease and all_digits and part.len() > 1 and part.slice(0, 1) == "0" return false end
+    end
+    return true
+end
+
+fn semver_without_build(value: str) -> str
+    let plus = index_of(value, "+")
+    if plus < 0 return value end
+    return value.slice(0, plus)
+end
+
+
+
+fn semver_core(value: str) -> str
+    mut clean = value.trim()
+    if clean.starts_with("v") or clean.starts_with("V")
+        clean = clean.slice(1, clean.len())
+    end
+    clean = semver_without_build(clean)
+    let dash = index_of(clean, "-")
+    if dash >= 0 return clean.slice(0, dash) end
+    return clean
+end
+
+fn semver_prerelease(value: str) -> str
+    mut clean = value.trim()
+    if clean.starts_with("v") or clean.starts_with("V") clean = clean.slice(1, clean.len()) end
+    clean = semver_without_build(clean)
+    let dash = index_of(clean, "-")
+    if dash < 0 return "" end
+    return clean.slice(dash + 1, clean.len())
+end
+
+fn semver_is_valid(value: str) -> bool
+    mut clean = value.trim()
+    if clean.starts_with("v") or clean.starts_with("V") clean = clean.slice(1, clean.len()) end
+    if clean.len() == 0 return false end
+    let plus = index_of(clean, "+")
+    if plus >= 0
+        if index_of(clean.slice(plus + 1, clean.len()), "+") >= 0 return false end
+        if not semver_identifiers_valid(clean.slice(plus + 1, clean.len()), false) return false end
+    end
+    let before_build = semver_without_build(clean)
+    let dash = index_of(before_build, "-")
+    if dash >= 0
+        if not semver_identifiers_valid(before_build.slice(dash + 1, before_build.len()), true) return false end
+    end
+    let core = semver_core(clean)
+    let parts = core.split(".")
+    if parts.len() != 3 return false end
+    for part in parts
+        if not semver_numeric(part) return false end
+        if part.len() > 1 and part.slice(0, 1) == "0" return false end
+        let number = str_to_int(part) or -1
+        if number < 0 return false end
+    end
+    return true
+end
+
+fn semver_major(value: str) -> int
+    if not semver_is_valid(value) return -1 end
+    let core = semver_core(value)
+    let parts = core.split(".")
+    let part = parts[0]
+    return str_to_int(part) or -1
+end
+
+fn semver_minor(value: str) -> int
+    if not semver_is_valid(value) return -1 end
+    let core = semver_core(value)
+    let parts = core.split(".")
+    let part = parts[1]
+    return str_to_int(part) or -1
+end
+
+fn semver_patch(value: str) -> int
+    if not semver_is_valid(value) return -1 end
+    let core = semver_core(value)
+    let parts = core.split(".")
+    let part = parts[2]
+    return str_to_int(part) or -1
+end
+
+fn semver_compare_identifiers(a: str, b: str) -> int
+    let a_numeric = semver_numeric(a)
+    let b_numeric = semver_numeric(b)
+    if a_numeric and b_numeric
+        if a.len() < b.len() return -1 end
+        if a.len() > b.len() return 1 end
+        return str_compare(a, b)
+    end
+    if a_numeric and not b_numeric return -1 end
+    if not a_numeric and b_numeric return 1 end
+    return str_compare(a, b)
+end
+
+fn semver_compare_prerelease(a: str, b: str) -> int
+    if a == "" and b == "" return 0 end
+    if a == "" return 1 end
+    if b == "" return -1 end
+    let a_parts = a.split(".")
+    let b_parts = b.split(".")
+    mut i = 0
+    while i < a_parts.len() and i < b_parts.len()
+        let cmp = semver_compare_identifiers(a_parts[i], b_parts[i])
+        if cmp != 0 return cmp end
+        i = i + 1
+    end
+    if a_parts.len() < b_parts.len() return -1 end
+    if a_parts.len() > b_parts.len() return 1 end
+    return 0
+end
+
+-- Returns -1, 0, or 1; invalid versions return an error.
+fn semver_compare(a: str, b: str) -> int!
+    if not semver_is_valid(a) or not semver_is_valid(b) fail "invalid semantic version" end
+    let a_core = semver_core(a)
+    let b_core = semver_core(b)
+    let a_parts = a_core.split(".")
+    let b_parts = b_core.split(".")
+    mut i = 0
+    while i < 3
+        let av = str_to_int(a_parts[i]) or -1
+        let bv = str_to_int(b_parts[i]) or -1
+        if av < bv return -1 end
+        if av > bv return 1 end
+        i = i + 1
+    end
+    let a_pre = semver_prerelease(a)
+    let b_pre = semver_prerelease(b)
+    let pre_result = semver_compare_prerelease(a_pre, b_pre)
+    return pre_result
+end

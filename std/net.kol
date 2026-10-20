@@ -1,0 +1,55 @@
+-- Synchronous TCP sockets. A socket is an integer handle; close it on every path.
+extern fn kol_net_connect(host: str, port: int, timeout_ms: int) -> int from "kol_runtime"
+extern fn kol_net_listen(port: int, backlog: int) -> int from "kol_runtime"
+extern fn kol_net_accept(listener: int) -> int from "kol_runtime"
+extern fn kol_net_send(socket: int, data: str) -> int from "kol_runtime"
+extern fn kol_net_recv(socket: int, max_bytes: int) -> str from "kol_runtime"
+extern fn kol_net_close(socket: int) from "kol_runtime"
+extern fn kol_net_resolve(host: str) -> str from "kol_runtime"
+extern fn kol_udp_bind(port: int) -> int from "kol_runtime"
+extern fn kol_udp_send_to(host: str, port: int, data: str) -> int from "kol_runtime"
+extern fn kol_udp_recv(socket: int, max_bytes: int) -> str from "kol_runtime"
+
+fn net_connect(host: str, port: int, timeout_ms: int) -> int
+    return kol_net_connect(host, port, timeout_ms)
+end
+
+fn net_listen(port: int, backlog: int) -> int
+    return kol_net_listen(port, backlog)
+end
+
+fn net_accept(listener: int) -> int
+    return kol_net_accept(listener)
+end
+
+fn net_send(socket: int, data: str) -> int
+    return kol_net_send(socket, data)
+end
+
+fn net_recv(socket: int, max_bytes: int) -> str
+    return kol_net_recv(socket, max_bytes)
+end
+
+fn net_close(socket: int)
+    kol_net_close(socket)
+end
+
+fn net_resolve(host: str) -> str
+    return kol_net_resolve(host)
+end
+
+fn udp_bind(port: int) -> int
+    return kol_udp_bind(port)
+end
+
+fn udp_send_to(host: str, port: int, data: str) -> int
+    return kol_udp_send_to(host, port, data)
+end
+
+fn udp_recv(socket: int, max_bytes: int) -> str
+    return kol_udp_recv(socket, max_bytes)
+end
+
+fn udp_close(socket: int)
+    kol_net_close(socket)
+end

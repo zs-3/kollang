@@ -1,0 +1,121 @@
+-- Validation helpers for common ASCII-oriented input formats.
+-- These are convenience checks, not substitutes for protocol parsers or security policy.
+use std.str
+use std.convert
+
+fn validate_is_blank(value: str) -> bool
+    return value.trim().len() == 0
+end
+
+fn validate_is_ascii_digit_char(value: str) -> bool
+    if value.len() != 1 return false end
+    let code = char_code(value)
+    return code >= 48 and code <= 57
+end
+
+fn validate_is_ascii_alpha_char(value: str) -> bool
+    if value.len() != 1 return false end
+    let code = char_code(value)
+    return (code >= 65 and code <= 90) or (code >= 97 and code <= 122)
+end
+
+fn validate_is_ascii_alnum_char(value: str) -> bool
+    return validate_is_ascii_alpha_char(value) or validate_is_ascii_digit_char(value)
+end
+
+fn validate_is_digits(value: str) -> bool
+    if value.len() == 0 return false end
+    mut i = 0
+    while i < value.len()
+        if not validate_is_ascii_digit_char(value.slice(i, i + 1)) return false end
+        i = i + 1
+    end
+    return true
+end
+
+fn validate_is_hex(value: str) -> bool
+    if value.len() == 0 return false end
+    mut i = 0
+    while i < value.len()
+        let code = char_code(value.slice(i, i + 1).lower())
+        if not ((code >= 48 and code <= 57) or (code >= 97 and code <= 102)) return false end
+        i = i + 1
+    end
+    return true
+end
+
+-- Accepts an optional leading sign and one decimal point; no exponent or whitespace.
+fn validate_is_decimal(value: str) -> bool
+    if value.len() == 0 return false end
+    mut i = 0
+    let first = value.slice(0, 1)
+    if first == "+" or first == "-"
+        i = 1
+        if value.len() == 1 return false end
+    end
+    mut seen_dot = false
+    mut seen_digit = false
+    while i < value.len()
+        let ch = value.slice(i, i + 1)
+        if validate_is_ascii_digit_char(ch)
+            seen_digit = true
+        elif ch == "." and not seen_dot
+            seen_dot = true
+        else
+            return false
+        end
+        i = i + 1
+    end
+    return seen_digit
+end
+
+fn validate_is_identifier(value: str) -> bool
+    if value.len() == 0 return false end
+    let first = value.slice(0, 1)
+    if not validate_is_ascii_alpha_char(first) and first != "_" return false end
+    mut i = 1
+    while i < value.len()
+        let ch = value.slice(i, i + 1)
+        if not validate_is_ascii_alnum_char(ch) and ch != "_" return false end
+        i = i + 1
+    end
+    return true
+end
+
+fn validate_is_port(value: int) -> bool
+    return value >= 1 and value <= 65535
+end
+
+fn validate_is_ipv4(value: str) -> bool
+    let parts = value.split(".")
+    if parts.len() != 4 return false end
+    for part in parts
+        if not validate_is_digits(part) return false end
+        if part.len() > 1 and part.slice(0, 1) == "0" return false end
+        let number = str_to_int(part) or -1
+        if number < 0 or number > 255 return false end
+    end
+    return true
+end
+
+-- Pragmatic email-shape validation only; actual delivery/provider rules vary.
+fn validate_is_email(value: str) -> bool
+    if value.len() < 3 or value.contains(" ") or value.contains("\t") or value.contains("\n") return false end
+    let at = index_of(value, "@")
+    if at <= 0 or at != last_index_of(value, "@") or at >= value.len() - 1 return false end
+    let local_part = value.slice(0, at)
+    let domain = value.slice(at + 1, value.len())
+    if local_part.starts_with(".") or local_part.ends_with(".") or local_part.contains("..") return false end
+    if not domain.contains(".") or domain.starts_with(".") or domain.ends_with(".") or domain.contains("..") return false end
+    if domain.contains("_") return false end
+    return true
+end
+
+fn validate_is_ascii(value: str) -> bool
+    mut i = 0
+    while i < value.len()
+        if char_code(value.slice(i, i + 1)) > 127 return false end
+        i = i + 1
+    end
+    return true
+end

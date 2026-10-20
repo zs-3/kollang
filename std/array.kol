@@ -359,6 +359,84 @@ fn sort_float_array(xs: [float]) -> [float]
     return arr
 end
 
+fn float_array_contains(xs: [float], value: float) -> bool
+    for x in xs
+        if x == value return true end
+    end
+    return false
+end
+
+fn float_array_index_of(xs: [float], value: float) -> int
+    mut i = 0
+    while i < xs.len()
+        if xs[i] == value return i end
+        i = i + 1
+    end
+    return -1
+end
+
+fn float_array_reverse_copy(xs: [float]) -> [float]
+    mut out: [float] = []
+    mut i = xs.len() - 1
+    while i >= 0
+        out.push(xs[i])
+        i = i - 1
+    end
+    return out
+end
+
+fn float_array_concat(a: [float], b: [float]) -> [float]
+    mut out: [float] = float_array_copy(a)
+    for x in b
+        out.push(x)
+    end
+    return out
+end
+
+fn float_array_slice(xs: [float], start: int, end_idx: int) -> [float]
+    mut out: [float] = []
+    mut i = start
+    if i < 0 i = 0 end
+    mut stop = end_idx
+    if stop > xs.len() stop = xs.len() end
+    while i < stop
+        out.push(xs[i])
+        i = i + 1
+    end
+    return out
+end
+
+fn float_array_take(xs: [float], count: int) -> [float]
+    return float_array_slice(xs, 0, count)
+end
+
+fn float_array_drop(xs: [float], count: int) -> [float]
+    return float_array_slice(xs, count, xs.len())
+end
+
+fn float_array_unique(xs: [float]) -> [float]
+    mut out: [float] = []
+    for x in xs
+        if not float_array_contains(out, x) out.push(x) end
+    end
+    return out
+end
+
+fn float_array_equals(a: [float], b: [float]) -> bool
+    if a.len() != b.len() return false end
+    mut i = 0
+    while i < a.len()
+        if a[i] != b[i] return false end
+        i = i + 1
+    end
+    return true
+end
+
+fn sort_float_array_desc(xs: [float]) -> [float]
+    let sorted = sort_float_array(xs)
+    return float_array_reverse_copy(sorted)
+end
+
 -- ---------------------------------------------------------------------------
 -- [str] arrays
 -- ---------------------------------------------------------------------------
@@ -452,4 +530,70 @@ fn sort_str_array(xs: [str]) -> [str]
         i = i + 1
     end
     return arr
+end
+
+fn str_array_count(xs: [str], value: str) -> int
+    mut count = 0
+    for x in xs
+        if x == value count = count + 1 end
+    end
+    return count
+end
+
+fn str_array_equals(a: [str], b: [str]) -> bool
+    if a.len() != b.len() return false end
+    mut i = 0
+    while i < a.len()
+        if a[i] != b[i] return false end
+        i = i + 1
+    end
+    return true
+end
+
+fn str_array_is_sorted(xs: [str]) -> bool
+    mut i = 1
+    while i < xs.len()
+        if str_compare(xs[i - 1], xs[i]) > 0 return false end
+        i = i + 1
+    end
+    return true
+end
+
+fn str_array_take(xs: [str], count: int) -> [str]
+    return str_array_slice(xs, 0, count)
+end
+
+fn str_array_drop(xs: [str], count: int) -> [str]
+    return str_array_slice(xs, count, xs.len())
+end
+
+fn str_array_remove_at(xs: [str], index: int) -> [str]
+    mut out: [str] = str_array_empty()
+    mut i = 0
+    while i < xs.len()
+        if i != index out.push(xs[i]) end
+        i = i + 1
+    end
+    return out
+end
+
+fn str_array_insert_at(xs: [str], index: int, value: str) -> [str]
+    mut out: [str] = str_array_empty()
+    mut i = 0
+    mut placed = false
+    while i < xs.len()
+        if i == index
+            out.push(value)
+            placed = true
+        end
+        out.push(xs[i])
+        i = i + 1
+    end
+    if not placed out.push(value) end
+    return out
+end
+
+fn sort_str_array_desc(xs: [str]) -> [str]
+    let sorted = sort_str_array(xs)
+    return str_array_reverse_copy(sorted)
 end

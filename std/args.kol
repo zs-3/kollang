@@ -1,0 +1,16 @@
+-- Process command-line arguments, excluding the executable path.
+extern fn kol_runtime_args() -> [str] from "kol_runtime"
+extern fn kol_runtime_arg_count() -> int from "kol_runtime"
+extern fn kol_runtime_arg_at(index: int) -> str from "kol_runtime"
+
+fn args() -> [str]
+    return kol_runtime_args()
+end
+
+fn arg_count() -> int
+    return kol_runtime_arg_count()
+end
+
+fn arg_at(index: int) -> str
+    return kol_runtime_arg_at(index)
+end

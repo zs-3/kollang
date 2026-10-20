@@ -1,0 +1,4 @@
+use std.args
+print(arg_count())
+print(arg_at(0))
+print(`raw {text} \n without escapes`)

@@ -1,0 +1,189 @@
+use std.convert
+
+-- JSON utilities. Raw-value access returns the exact JSON token; empty string means missing/invalid.
+extern fn kol_json_is_valid(json: str) -> bool from "kol_runtime"
+extern fn kol_json_quote(value: str) -> str from "kol_runtime"
+extern fn kol_json_get_raw(json: str, key: str) -> str from "kol_runtime"
+extern fn kol_json_get_string(json: str, key: str) -> str from "kol_runtime"
+extern fn kol_json_array_len(json: str) -> int from "kol_runtime"
+extern fn kol_json_array_get_raw(json: str, index: int) -> str from "kol_runtime"
+
+fn json_is_valid(value: str) -> bool
+    return kol_json_is_valid(value)
+end
+
+fn json_quote(value: str) -> str
+    return kol_json_quote(value)
+end
+
+fn json_string(value: str) -> str
+    return kol_json_quote(value)
+end
+
+fn json_get_raw(value: str, key: str) -> str
+    return kol_json_get_raw(value, key)
+end
+
+fn json_get_string(value: str, key: str) -> str
+    return kol_json_get_string(value, key)
+end
+
+fn json_get_int(value: str, key: str) -> int!
+    let raw_value = kol_json_get_raw(value, key)
+    if raw_value.len() == 0 fail "JSON key not found or invalid" end
+    if raw_value == "null" or raw_value == "true" or raw_value == "false" fail "JSON value is not an integer" end
+    if raw_value.contains(".") or raw_value.contains("e") or raw_value.contains("E") fail "JSON value is not an integer" end
+    return str_to_int(raw_value)
+end
+
+fn json_get_float(value: str, key: str) -> float!
+    let raw_value = kol_json_get_raw(value, key)
+    if raw_value.len() == 0 fail "JSON key not found or invalid" end
+    return str_to_float(raw_value)
+end
+
+fn json_get_bool(value: str, key: str) -> bool!
+    let raw_value = kol_json_get_raw(value, key)
+    if raw_value == "true" return true end
+    if raw_value == "false" return false end
+    fail "JSON key not found or value is not a boolean"
+end
+
+fn json_array_len(value: str) -> int
+    return kol_json_array_len(value)
+end
+
+fn json_array_get_raw(value: str, index: int) -> str
+    return kol_json_array_get_raw(value, index)
+end
+
+fn json_has_key(value: str, key: str) -> bool
+    return kol_json_get_raw(value, key).len() > 0
+end
+
+fn json_object_field(value: str, key: str, encoded_value: str) -> str
+    if value.len() > 0 and value.slice(value.len() - 1, value.len()) == "\}"
+        let prefix = value.slice(0, value.len() - 1)
+        if prefix.trim().ends_with("\{") return prefix + json_quote(key) + ":" + encoded_value + "\}" end
+        return prefix + "," + json_quote(key) + ":" + encoded_value + "\}"
+    end
+    return "\{" + json_quote(key) + ":" + encoded_value + "\}"
+end
+
+fn json_array_push(value: str, encoded_value: str) -> str
+    if value.len() > 0 and value.slice(value.len() - 1, value.len()) == "]"
+        let prefix = value.slice(0, value.len() - 1)
+        if prefix.trim().ends_with("[") return prefix + encoded_value + "]" end
+        return prefix + "," + encoded_value + "]"
+    end
+    return "[" + encoded_value + "]"
+end
+
+-- Typed convenience accessors for JSON arrays and fallback-friendly object reads.
+fn json_get_int_or(value: str, key: str, fallback: int) -> int
+    return json_get_int(value, key) or fallback
+end
+
+fn json_get_float_or(value: str, key: str, fallback: float) -> float
+    return json_get_float(value, key) or fallback
+end
+
+fn json_get_bool_or(value: str, key: str, fallback: bool) -> bool
+    let raw_value = kol_json_get_raw(value, key)
+    if raw_value == "true" return true end
+    if raw_value == "false" return false end
+    return fallback
+end
+
+fn json_array_get_int(value: str, index: int) -> int!
+    let raw_value = kol_json_array_get_raw(value, index)
+    if raw_value.len() == 0 fail "JSON array index not found or invalid" end
+    if raw_value == "null" or raw_value == "true" or raw_value == "false" fail "JSON array value is not an integer" end
+    if raw_value.contains(".") or raw_value.contains("e") or raw_value.contains("E") fail "JSON array value is not an integer" end
+    return str_to_int(raw_value)
+end
+
+fn json_array_get_float(value: str, index: int) -> float!
+    let raw_value = kol_json_array_get_raw(value, index)
+    if raw_value.len() == 0 fail "JSON array index not found or invalid" end
+    if raw_value == "null" or raw_value == "true" or raw_value == "false" fail "JSON array value is not numeric" end
+    return str_to_float(raw_value)
+end
+
+fn json_array_get_bool(value: str, index: int) -> bool!
+    let raw_value = kol_json_array_get_raw(value, index)
+    if raw_value == "true" return true end
+    if raw_value == "false" return false end
+    fail "JSON array index not found or value is not a boolean"
+end
+
+fn json_array_get_int_or(value: str, index: int, fallback: int) -> int
+    return json_array_get_int(value, index) or fallback
+end
+
+fn json_array_get_float_or(value: str, index: int, fallback: float) -> float
+    return json_array_get_float(value, index) or fallback
+end
+
+fn json_array_get_bool_or(value: str, index: int, fallback: bool) -> bool
+    let raw_value = kol_json_array_get_raw(value, index)
+    if raw_value == "true" return true end
+    if raw_value == "false" return false end
+    return fallback
+end
+
+
+-- Safe typed builders. These helpers encode strings and format primitive values
+-- so callers do not need to hand-escape values before composing JSON.
+fn json_object_field_string(value: str, key: str, field_value: str) -> str
+    return json_object_field(value, key, json_quote(field_value))
+end
+
+fn json_object_field_int(value: str, key: str, field_value: int) -> str
+    return json_object_field(value, key, int_to_str(field_value))
+end
+
+fn json_object_field_float(value: str, key: str, field_value: float) -> str
+    return json_object_field(value, key, float_to_str(field_value))
+end
+
+fn json_object_field_bool(value: str, key: str, field_value: bool) -> str
+    return json_object_field(value, key, bool_to_str(field_value))
+end
+
+fn json_array_push_string(value: str, item: str) -> str
+    return json_array_push(value, json_quote(item))
+end
+
+fn json_array_push_int(value: str, item: int) -> str
+    return json_array_push(value, int_to_str(item))
+end
+
+fn json_array_push_float(value: str, item: float) -> str
+    return json_array_push(value, float_to_str(item))
+end
+
+fn json_array_push_bool(value: str, item: bool) -> str
+    return json_array_push(value, bool_to_str(item))
+end
+
+fn json_get_string_or(value: str, key: str, fallback: str) -> str
+    if not json_has_key(value, key)
+        return fallback
+    end
+    return json_get_string(value, key)
+end
+
+fn json_array_get_string(value: str, index: int) -> str!
+    let raw_value = kol_json_array_get_raw(value, index)
+    if raw_value.len() == 0 fail "JSON array index not found or invalid" end
+    if raw_value.slice(0, 1) != "\"" fail "JSON array value is not a string" end
+    -- The runtime accessor is object-key based, so extract a string token
+    -- through the same JSON parser by wrapping it in a one-field object.
+    let wrapped = "\{\"value\":" + raw_value + "\}"
+    return kol_json_get_string(wrapped, "value")
+end
+
+fn json_array_get_string_or(value: str, index: int, fallback: str) -> str
+    return json_array_get_string(value, index) or fallback
+end

@@ -1,0 +1,48 @@
+-- Small single-pass placeholder renderer. Placeholders use {key}; unknown keys stay unchanged.
+-- Values are inserted literally and are not recursively interpreted as placeholders.
+use std.str
+
+fn template_render(source: str, keys: [str], values: [str]) -> str
+    mut output = ""
+    mut i = 0
+    while i < source.len()
+        let current = source.slice(i, i + 1)
+        if current == "\{"
+            let remainder = source.slice(i + 1, source.len())
+            let close = index_of(remainder, "\}")
+            if close >= 0
+                let key = remainder.slice(0, close)
+                mut found = -1
+                mut j = 0
+                while j < keys.len() and j < values.len()
+                    if keys[j] == key
+                        found = j
+                        break
+                    end
+                    j = j + 1
+                end
+                if found >= 0
+                    output = output + values[found]
+                    i = i + close + 2
+                    continue
+                end
+            end
+        end
+        output = output + current
+        i = i + 1
+    end
+    return output
+end
+
+fn template_has_placeholder(source: str, key: str) -> bool
+    return source.contains("\{" + key + "\}")
+end
+
+fn template_escape_html(value: str) -> str
+    mut output = value.replace("&", "&amp;")
+    output = output.replace("<", "&lt;")
+    output = output.replace(">", "&gt;")
+    output = output.replace("\"", "&quot;")
+    output = output.replace("'", "&#39;")
+    return output
+end

@@ -279,7 +279,11 @@ class Lexer:
                 self.tokens.append(Token(TokenType.RBRACE, "}", loc))
                 continue
 
-            # String literal / String interpolation
+            # String literal / String interpolation. Backticks are raw strings:
+            # no escapes and no interpolation, useful for regexes and paths.
+            if ch == '`':
+                self._scan_raw_string(loc)
+                continue
             if ch == '"':
                 nesting_depth = self._scan_string(loc, nesting_depth)
                 continue
@@ -408,6 +412,17 @@ class Lexer:
             self.tokens.append(Token(KEYWORDS[val], val, loc))
         else:
             self.tokens.append(Token(TokenType.IDENT, val, loc))
+
+    def _scan_raw_string(self, loc: SourceLocation) -> None:
+        self._advance()  # opening backtick
+        start = self.pos
+        while self._curr() and self._curr() != '`':
+            self._advance()
+        if self._curr() != '`':
+            raise KolError("Unterminated raw string literal", loc)
+        value = self.source[start:self.pos]
+        self._advance()  # closing backtick
+        self.tokens.append(Token(TokenType.STR_LIT, value, loc))
 
     def _scan_string(self, loc: SourceLocation, nesting_depth: int) -> int:
         self._advance() # consume initial '"'

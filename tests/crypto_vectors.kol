@@ -1,0 +1,5 @@
+use std.crypto
+print(sha256(""))
+print(md5(""))
+print(sha256("The quick brown fox jumps over the lazy dog"))
+print(md5("The quick brown fox jumps over the lazy dog"))

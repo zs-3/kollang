@@ -175,7 +175,7 @@ def check_duplicate_functions(nodes: List[ASTNode]) -> None:
         seen[node.name] = loc
 
 
-def compile_kol_to_c(kol_filepath: str, release_mode: bool = False) -> str:
+def compile_kol_to_c(kol_filepath: str, release_mode: bool = False, target: str = None) -> str:
     visited = set()
     pkg_ctx = PackageContext.find(kol_filepath)
     all_nodes = resolve_imports_and_parse(kol_filepath, visited, pkg_ctx)
@@ -208,7 +208,7 @@ def compile_kol_to_c(kol_filepath: str, release_mode: bool = False) -> str:
     analyser = Analyser(kol_filepath)
     analyser.analyse(combined_ast)
 
-    codegen = Codegen(kol_filepath, release_mode=release_mode)
+    codegen = Codegen(kol_filepath, release_mode=release_mode, target=target)
     c_code = codegen.generate(combined_ast, release_mode=release_mode)
     return c_code
 
@@ -236,7 +236,7 @@ def cmd_run(args: List[str]):
         print(res.stderr)
         sys.exit(1)
 
-    exec_res = subprocess.run([bin_file], capture_output=False)
+    exec_res = subprocess.run([bin_file, *args[1:]], capture_output=False)
     sys.exit(exec_res.returncode)
 
 def cmd_build(args: List[str]):
@@ -287,7 +287,7 @@ def cmd_build(args: List[str]):
         extra_flags = target_flags
         out_bin = f"./{base_name}-{target}"
 
-    c_code = compile_kol_to_c(file_path, release_mode=release)
+    c_code = compile_kol_to_c(file_path, release_mode=release, target=target)
     c_file = f"{base_name}.c"
 
     with open(c_file, "w", encoding="utf-8") as f:
@@ -295,7 +295,7 @@ def cmd_build(args: List[str]):
 
     runtime_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "runtime"))
     if release:
-        comp_cmd = [cc] + extra_flags + ["-O3", "-march=native", "-I", runtime_dir, "-o", out_bin, c_file, "-lm", "-lpthread"]
+        comp_cmd = [cc] + extra_flags + ["-O3", "-I", runtime_dir, "-o", out_bin, c_file, "-lm", "-lpthread"]
     else:
         comp_cmd = [cc] + extra_flags + ["-O2", "-I", runtime_dir, "-o", out_bin, c_file, "-lm", "-lpthread"]
 

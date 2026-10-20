@@ -1,0 +1,84 @@
+-- ANSI terminal helpers. Use term_supports_color() before styling output for logs/files.
+use std.str
+use std.os
+
+fn term_escape() -> str
+    return char_from_code(27)
+end
+
+fn term_reset() -> str
+    return term_escape() + "[0m"
+end
+
+fn term_bold(value: str) -> str
+    return term_escape() + "[1m" + value + term_reset()
+end
+
+fn term_dim(value: str) -> str
+    return term_escape() + "[2m" + value + term_reset()
+end
+
+fn term_italic(value: str) -> str
+    return term_escape() + "[3m" + value + term_reset()
+end
+
+fn term_underline(value: str) -> str
+    return term_escape() + "[4m" + value + term_reset()
+end
+
+fn term_red(value: str) -> str
+    return term_escape() + "[31m" + value + term_reset()
+end
+
+fn term_green(value: str) -> str
+    return term_escape() + "[32m" + value + term_reset()
+end
+
+fn term_yellow(value: str) -> str
+    return term_escape() + "[33m" + value + term_reset()
+end
+
+fn term_blue(value: str) -> str
+    return term_escape() + "[34m" + value + term_reset()
+end
+
+fn term_magenta(value: str) -> str
+    return term_escape() + "[35m" + value + term_reset()
+end
+
+fn term_cyan(value: str) -> str
+    return term_escape() + "[36m" + value + term_reset()
+end
+
+fn term_clear_screen() -> str
+    return term_escape() + "[2J" + term_escape() + "[H"
+end
+
+fn term_clear_line() -> str
+    return term_escape() + "[2K\r"
+end
+
+fn term_cursor_to(row: int, column: int) -> str
+    if row < 1 or column < 1 return "" end
+    return term_escape() + "[{row};{column}H"
+end
+
+fn term_supports_color() -> bool
+    if env_has("NO_COLOR") return false end
+    let term = env_get_or("TERM", "")
+    if term == "" or term == "dumb" return false end
+    return true
+end
+
+fn term_style_if(value: str, style: int, enabled: bool) -> str
+    if not enabled return value end
+    if style == 1 return term_bold(value) end
+    if style == 2 return term_dim(value) end
+    if style == 31 return term_red(value) end
+    if style == 32 return term_green(value) end
+    if style == 33 return term_yellow(value) end
+    if style == 34 return term_blue(value) end
+    if style == 35 return term_magenta(value) end
+    if style == 36 return term_cyan(value) end
+    return value
+end

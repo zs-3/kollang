@@ -1,0 +1,14 @@
+use std.args
+use std.net
+use std.convert
+
+let argv = args()
+let port = str_to_int(arg_at(1)) or 0
+let fd = net_connect(arg_at(0), port, 2000)
+if fd < 0
+    print("CONNECT_FAILED")
+else
+    print(net_send(fd, "ping"))
+    print(net_recv(fd, 32))
+    net_close(fd)
+end

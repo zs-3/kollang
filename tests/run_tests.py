@@ -52,7 +52,7 @@ def run_tests():
             print("PASSED (No .expected file)")
             passed += 1
 
-    py_tests = ["tests/test_invalid_import.py", "tests/unit_feature_guards.py", "tests/test_cross_compile.py", "tests/test_concurrency_runtime.py", "tests/test_kit.py", "tests/test_kit_chibicc.py", "tests/test_kit_sources.py"]
+    py_tests = ["tests/test_invalid_import.py", "tests/unit_feature_guards.py", "tests/test_cross_compile.py", "tests/test_concurrency_runtime.py", "tests/test_kit.py", "tests/test_kit_chibicc.py", "tests/test_kit_sources.py", "tests/test_cli_args.py", "tests/test_net_http.py", "tests/test_when_targets.py"]
     for py_test in py_tests:
         print(f"Running {py_test}...", end=" ")
         res = subprocess.run([sys.executable, py_test], capture_output=True, text=True)

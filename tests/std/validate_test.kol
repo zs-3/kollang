@@ -1,0 +1,23 @@
+use std.validate
+use std.core
+
+assert_eq_bool(validate_is_blank("  \t"), true, "blank whitespace")
+assert_eq_bool(validate_is_digits("012345"), true, "digits")
+assert_eq_bool(validate_is_digits("12a"), false, "reject non digit")
+assert_eq_bool(validate_is_hex("aBc019"), true, "hex")
+assert_eq_bool(validate_is_hex("0x12"), false, "reject hex prefix")
+assert_eq_bool(validate_is_decimal("-12.50"), true, "signed decimal")
+assert_eq_bool(validate_is_decimal("."), false, "reject bare dot")
+assert_eq_bool(validate_is_decimal("1e4"), false, "reject exponent")
+assert_eq_bool(validate_is_identifier("_name9"), true, "identifier")
+assert_eq_bool(validate_is_identifier("9name"), false, "reject numeric start")
+assert_eq_bool(validate_is_port(443), true, "valid port")
+assert_eq_bool(validate_is_port(65536), false, "port range")
+assert_eq_bool(validate_is_ipv4("192.168.1.1"), true, "IPv4")
+assert_eq_bool(validate_is_ipv4("256.1.1.1"), false, "IPv4 range")
+assert_eq_bool(validate_is_ipv4("01.2.3.4"), false, "IPv4 leading zero")
+assert_eq_bool(validate_is_email("person@example.org"), true, "email shape")
+assert_eq_bool(validate_is_email("person@@example.org"), false, "email repeated at")
+assert_eq_bool(validate_is_ascii("abc-123"), true, "ASCII")
+assert_eq_bool(validate_is_ascii("café"), false, "non ASCII")
+print("VALIDATE TESTS PASSED")

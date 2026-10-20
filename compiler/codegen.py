@@ -1,4 +1,6 @@
 from typing import List, Set, Dict, Optional, Tuple
+import platform as _platform
+import sys as _sys
 from compiler.ast_nodes import *
 from compiler.errors import KolError
 
@@ -12,9 +14,10 @@ C_KEYWORDS = {
 }
 
 class Codegen:
-    def __init__(self, filename: str, release_mode: bool = False):
+    def __init__(self, filename: str, release_mode: bool = False, target: Optional[str] = None):
         self.filename = filename
         self.release_mode = release_mode
+        self.target = target
         self.code: List[str] = []
         self.global_consts: List[str] = []
         self.type_decls: List[str] = []
@@ -109,8 +112,33 @@ class Codegen:
         if k.startswith("list") or k == "kol_array_t": return "kol_array_t"
         return k
 
+    @staticmethod
+    def _nested_list_info(type_key: str):
+        """Return (depth, leaf type) for nested scalar arrays, else None."""
+        depth = 0
+        key = type_key
+        while key.startswith("list_"):
+            depth += 1
+            key = key[5:]
+        if depth >= 2 and key in ("str", "int", "float", "bool"):
+            return depth, key
+        return None
+
+    def _nested_list_call_args(self, type_key: str):
+        info = self._nested_list_info(type_key)
+        if not info:
+            return None
+        depth, leaf = info
+        leaf_kind = 1 if leaf == "str" else 0
+        return depth, leaf_kind
+
     def _emit_cleanup_for(self, var_name: str, type_key: str):
         safe_name = self._safe_c_name(var_name)
+        nested = self._nested_list_call_args(type_key)
+        if nested:
+            depth, leaf_kind = nested
+            self._emit(f"kol_array_free_deep(&{safe_name}, {depth}, {leaf_kind});")
+            return
         if type_key == "str":
             self._emit(f"kol_arc_release_str({safe_name});")
         elif self._is_handle_key(type_key):
@@ -290,31 +318,60 @@ class Codegen:
                 self._gen_method_decl(effective_name, m, impl_interface=impl_b.interface_name)
         self.current_type_name = None
 
+    def _host_platform(self) -> str:
+        if self.target:
+            if self.target.startswith("linux-"): return "linux"
+            if self.target.startswith("macos-"): return "macos"
+            if self.target.startswith("windows-"): return "windows"
+        if _sys.platform.startswith("linux"):
+            return "linux"
+        if _sys.platform == "darwin":
+            return "macos"
+        if _sys.platform.startswith(("win32", "cygwin")):
+            return "windows"
+        return _sys.platform.lower()
+
+    def _host_arch(self) -> str:
+        if self.target and self.target.endswith("x86_64"): return "x86_64"
+        if self.target and self.target.endswith("arm64"): return "arm64"
+        machine = _platform.machine().lower()
+        if machine in ("amd64", "x64", "x86_64"):
+            return "x86_64"
+        if machine in ("aarch64", "arm64"):
+            return "arm64"
+        if machine in ("i386", "i486", "i586", "i686", "x86"):
+            return "x86"
+        return machine
+
     def _eval_when_cond(self, cond: ASTNode) -> bool:
-        if isinstance(cond, Ident):
-            if cond.name == "RELEASE": return self.release_mode
-            if cond.name == "DEBUG": return not self.release_mode
-            if cond.name == "PLATFORM": return "linux"
-            if cond.name == "ARCH": return "x86_64"
-        elif isinstance(cond, BinOp):
-            left_v = self._eval_when_expr(cond.left)
-            right_v = self._eval_when_expr(cond.right)
-            if cond.op == "==": return left_v == right_v
-            if cond.op == "!=": return left_v != right_v
-        elif isinstance(cond, BoolLit):
-            return cond.value
-        return False
+        return bool(self._eval_when_expr(cond))
 
     def _eval_when_expr(self, expr: ASTNode) -> Any:
         if isinstance(expr, Ident):
-            if expr.name == "PLATFORM": return "linux"
-            if expr.name == "ARCH": return "x86_64"
+            if expr.name == "PLATFORM": return self._host_platform()
+            if expr.name == "ARCH": return self._host_arch()
             if expr.name == "RELEASE": return self.release_mode
             if expr.name == "DEBUG": return not self.release_mode
             return expr.name
         if isinstance(expr, StrLit): return expr.value
         if isinstance(expr, BoolLit): return expr.value
         if isinstance(expr, IntLit): return expr.value
+        if isinstance(expr, UnaryOp):
+            if expr.op in ("not", "!"):
+                return not bool(self._eval_when_expr(expr.operand))
+            if expr.op == "-":
+                return -self._eval_when_expr(expr.operand)
+            return None
+        if isinstance(expr, BinOp):
+            if expr.op == "and":
+                return bool(self._eval_when_expr(expr.left)) and bool(self._eval_when_expr(expr.right))
+            if expr.op == "or":
+                return bool(self._eval_when_expr(expr.left)) or bool(self._eval_when_expr(expr.right))
+            left_v = self._eval_when_expr(expr.left)
+            right_v = self._eval_when_expr(expr.right)
+            if expr.op == "==": return left_v == right_v
+            if expr.op == "!=": return left_v != right_v
+            return None
         return None
 
     def _eval_when_branch(self, stmt: WhenStmt) -> List[ASTNode]:
@@ -439,7 +496,10 @@ class Codegen:
                     self._gen_function_decl(stmt)
 
             if not is_test_mode:
-                self._emit("int main(void) {")
+                self._emit("int main(int argc, char** argv) {")
+                self.indent_level += 1
+                self._emit("kol_runtime_set_args(argc, argv);")
+                self.indent_level -= 1
                 self.indent_level += 1
                 self.defer_stack.append([])
                 for stmt in node.statements:
@@ -464,7 +524,10 @@ class Codegen:
 
             has_main = any(isinstance(d, FunctionDecl) and d.name == "main" for d in node.declarations)
             if not has_main:
-                self._emit("int main(void) {")
+                self._emit("int main(int argc, char** argv) {")
+                self.indent_level += 1
+                self._emit("kol_runtime_set_args(argc, argv);")
+                self.indent_level -= 1
                 self._emit("    return 0;")
                 self._emit("}")
 
@@ -584,8 +647,9 @@ class Codegen:
             self._emit('')
 
         # Main entry point
-        self._emit('int main(void) {')
+        self._emit('int main(int argc, char** argv) {')
         self.indent_level += 1
+        self._emit('kol_runtime_set_args(argc, argv);')
         self._emit(f'printf("Running {len(test_nodes)} test(s)...\\n");')
         for i in range(len(test_nodes)):
             self._emit(f'_kol_test_{i}();')
@@ -1230,15 +1294,19 @@ class Codegen:
                 type_key = f"channel_{self._tkey(decl.value.elem_type)}"
             elif isinstance(decl.value, ListExpr):
                 type_str = "kol_array_t"
-                if decl.value.elements:
-                    first_t = self._infer_expr_type(decl.value.elements[0])
-                    if first_t == "str": type_key = "list_str"
-                    elif first_t == "float": type_key = "list_float"
-                    elif first_t == "bool": type_key = "list_bool"
-                    elif first_t in self.struct_fields or first_t in self.enum_defs: type_key = f"list_{first_t}"
-                    else: type_key = "list_int"
-                else:
-                    type_key = "list_int"
+                # An explicit annotation is authoritative, especially for empty
+                # arrays and nested arrays where inference has no element value.
+                if not decl.type_annot:
+                    if decl.value.elements:
+                        first_t = self._infer_expr_type(decl.value.elements[0])
+                        if first_t == "str": type_key = "list_str"
+                        elif first_t == "float": type_key = "list_float"
+                        elif first_t == "bool": type_key = "list_bool"
+                        elif first_t.startswith("list_"): type_key = f"list_{first_t}"
+                        elif first_t in self.struct_fields or first_t in self.enum_defs: type_key = f"list_{first_t}"
+                        else: type_key = "list_int"
+                    else:
+                        type_key = "list_int"
 
         self.var_types[decl.name] = type_key
         if self.scope_stack and not global_scope:
@@ -1259,7 +1327,7 @@ class Codegen:
                     val_c = self._gen_expr(arg_expr)
                     self._emit(f"{safe_decl_name}.{arg_name} = {val_c};")
             else:
-                if isinstance(decl.value, ListExpr) and not decl.value.elements and type_key.startswith("list"):
+                if isinstance(decl.value, ListExpr) and type_key.startswith("list"):
                     self.list_type_hint = type_key
                 val_str = self._gen_expr(decl.value)
                 self.list_type_hint = None
@@ -1328,12 +1396,18 @@ class Codegen:
             params_code.append(f"{pt} {p_safe}")
 
         param_str = ", ".join(params_code) if params_code else "void"
+        # The C entry point receives argc/argv even when the KOL main function
+        # declares no parameters; std.args exposes a safe KOL-level view.
+        if is_main and not decl.params:
+            param_str = "int argc, char** argv"
 
         inline_prefix = "static inline " if (decl.is_pure and not is_main) else ""
         self._emit(f"{inline_prefix}{ret_type} {c_fn_name}({param_str}) {{")
         self.indent_level += 1
         self.defer_stack.append([])
         self._push_scope()
+        if is_main and not decl.params:
+            self._emit("kol_runtime_set_args(argc, argv);")
 
         body = decl.body
         for idx, stmt in enumerate(body):
@@ -1460,6 +1534,10 @@ class Codegen:
             return [f"kol_arc_retain_str({ref});"]
         if self._is_handle_key(key):
             return [f"kol_obj_retain({ref});"]
+        nested = self._nested_list_call_args(key)
+        if nested:
+            depth, leaf_kind = nested
+            return [f"{ref} = kol_array_clone_deep(&{ref}, {depth}, {leaf_kind});"]
         if key.startswith("list_") and self._is_handle_key(key[5:]):
             return [f"{ref} = kol_array_clone(&{ref});", f"kol_array_retain_objs(&{ref});"]
         if key == "list_str":
@@ -1475,6 +1553,10 @@ class Codegen:
             return [f"kol_arc_release_str({ref});"]
         if self._is_handle_key(key):
             return [f"kol_obj_release({ref});"]
+        nested = self._nested_list_call_args(key)
+        if nested:
+            depth, leaf_kind = nested
+            return [f"kol_array_free_deep(&{ref}, {depth}, {leaf_kind});"]
         if key.startswith("list_") and self._is_handle_key(key[5:]):
             return [f"kol_array_free_objs(&{ref});"]
         if key == "list_str":
@@ -2003,6 +2085,8 @@ class Codegen:
                 if hint == "list_str": elem_type_c, elem_size = "KolStr", "sizeof(KolStr)"
                 elif hint == "list_float": elem_type_c, elem_size = "double", "sizeof(double)"
                 elif hint == "list_bool": elem_type_c, elem_size = "bool", "sizeof(bool)"
+                elif hint.startswith("list_list_"):
+                    elem_type_c, elem_size = "kol_array_t", "sizeof(kol_array_t)"
                 elif hint.startswith("list_") and (hint[5:] in self.struct_fields or hint[5:] in self.enum_defs):
                     elem_type_c, elem_size = hint[5:], f"sizeof({hint[5:]})"
             if expr.elements:
@@ -2016,17 +2100,25 @@ class Codegen:
                 elif first_t == "bool":
                     elem_type_c = "bool"
                     elem_size = "sizeof(bool)"
+                elif first_t.startswith("list_"):
+                    elem_type_c = "kol_array_t"
+                    elem_size = "sizeof(kol_array_t)"
                 elif first_t in self.struct_fields or first_t in self.enum_defs:
                     elem_type_c = first_t
                     elem_size = f"sizeof({first_t})"
 
             self._emit(f"kol_array_t {arr_var} = kol_array_create({elem_size}, {len(expr.elements)});")
             for elem in expr.elements:
+                if elem_type_c == "kol_array_t" and hint and hint.startswith("list_list_"):
+                    self.list_type_hint = hint[5:]
                 elem_c = self._gen_expr(elem)
+                self.list_type_hint = None
                 tmp_elem = self._temp_var("elem")
                 self._emit(f"{elem_type_c} {tmp_elem} = {elem_c};")
                 if elem_type_c == "KolStr" and self._is_borrowed(elem):
                     self._emit(f"kol_arc_retain_str({tmp_elem});")
+                elif elem_type_c == "kol_array_t" and self._is_borrowed(elem):
+                    self._emit(f"{tmp_elem} = {self._array_clone_expr(tmp_elem, self._infer_expr_type(elem))};")
                 self._emit(f"kol_array_push(&{arr_var}, &{tmp_elem});")
             return arr_var
 
@@ -2215,6 +2307,8 @@ class Codegen:
                 elif m == "repeat": return f"kol_str_repeat({obj}, {arg_strs[0]})"
                 elif m == "slice": return f"kol_str_slice({obj}, {arg_strs[0]}, {arg_strs[1]})"
                 elif m == "split": return f"kol_str_split({obj}, {arg_strs[0]})"
+                elif m == "index_of": return f"kol_str_find({obj}, {arg_strs[0]}, 0)"
+                elif m == "last_index_of": return f"kol_str_rfind({obj}, {arg_strs[0]})"
 
             if obj_t.startswith("list") or obj_t == "kol_array_t":
                 m = expr.method_name
@@ -2245,6 +2339,8 @@ class Codegen:
                     self._emit(f"{elem_t} {tmp_v} = {arg_strs[0]};")
                     if obj_t == "list_str" and self._is_borrowed(expr.args[0]):
                         self._emit(f"kol_arc_retain_str({tmp_v});")
+                    elif obj_t.startswith("list_list_") and self._is_borrowed(expr.args[0]):
+                        self._emit(f"{tmp_v} = {self._array_clone_expr(tmp_v, obj_t[5:])};")
                     return f"kol_array_push(&{obj}, &{tmp_v})"
 
             if obj_t in self.struct_fields or (obj_t in self.type_impl_methods and expr.method_name in self.type_impl_methods[obj_t]):
@@ -2285,6 +2381,10 @@ class Codegen:
         return any(n == name for scope in self.scope_stack for (n, _t) in scope)
 
     def _array_clone_expr(self, arr_c: str, type_key: str) -> str:
+        nested = self._nested_list_call_args(type_key)
+        if nested:
+            depth, leaf_kind = nested
+            return f"kol_array_clone_deep(&{arr_c}, {depth}, {leaf_kind})"
         if type_key.startswith("list_") and self._is_handle_key(type_key[5:]):
             return f"kol_array_clone_objs(&{arr_c})"
         if type_key == "list_str":
@@ -2318,6 +2418,16 @@ class Codegen:
         return self._infer_expr_type(left) == "bool"
 
     def _infer_expr_type(self, expr: ASTNode) -> str:
+        if isinstance(expr, ListExpr):
+            if not expr.elements:
+                return "list_int"
+            first_t = self._infer_expr_type(expr.elements[0])
+            if first_t == "str": return "list_str"
+            if first_t == "float": return "list_float"
+            if first_t == "bool": return "list_bool"
+            if first_t.startswith("list_"): return f"list_{first_t}"
+            if first_t in self.struct_fields or first_t in self.enum_defs: return f"list_{first_t}"
+            return "list_int"
         if isinstance(expr, IndexExpr):
             target_t = self._infer_expr_type(expr.target)
             if target_t == "list_str": return "str"

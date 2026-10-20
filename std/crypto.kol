@@ -1,0 +1,11 @@
+-- Cryptographic message digests. These are not password-hashing functions.
+extern fn kol_sha256(value: str) -> str from "kol_runtime"
+extern fn kol_md5(value: str) -> str from "kol_runtime"
+
+fn sha256(value: str) -> str
+    return kol_sha256(value)
+end
+
+fn md5(value: str) -> str
+    return kol_md5(value)
+end

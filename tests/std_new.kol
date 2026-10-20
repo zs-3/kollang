@@ -1,0 +1,45 @@
+use std.json
+use std.regex
+use std.csv
+use std.url
+use std.uuid
+use std.datetime
+use std.cli
+use std.fs
+use std.process
+use std.http
+use std.convert
+use std.crypto
+
+print(json_is_valid("[1,2,3]"))
+print(json_is_valid("\{\"name\":\"KOL\",\"n\":3\}"))
+print(json_get_string("\{\"name\":\"KOL\"\}", "name"))
+print(json_get_int("\{\"n\":42\}", "n") or -1)
+print(json_get_bool("\{\"ok\":true\}", "ok") or false)
+print(json_array_len("[1,2,3]"))
+print(json_array_get_raw("[1,\"x\",true]", 1))
+print(json_quote("hello"))
+print(regex_is_match(`[a-z]+`, "hello123"))
+print(regex_find(`[0-9]+`, "id42x"))
+print(regex_replace_all(`[0-9]+`, "a1b22", "X"))
+print(csv_parse_row("a,\"b,c\",d").len())
+print(csv_parse_document("a,b\n1,2").len())
+print(csv_encode_row(["a", "b,c", "d\"e"]))
+print(url_query_escape("a b+c"))
+print(url_query_unescape("a+b%2Bc") or "FAIL")
+print(url_scheme("https://example.com/a"))
+print(url_host("https://example.com/a"))
+print(url_path("https://example.com/a"))
+print(url_query_param("https://example.com/search?q=kol&page=2", "q"))
+print(url_port("http://example.com:8080/a"))
+print(uuid_is_valid(uuid_v4()))
+print(datetime_is_leap_year(2000))
+print(cli_has_flag(["app", "--verbose"], "--verbose"))
+print(fs_is_dir("std"))
+print(process_output("printf KOL"))
+print(process_run("true"))
+print(http_status_code("HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nOK"))
+print(http_body("HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nOK"))
+print(http_header("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nOK", "Content-Type"))
+print(sha256("abc"))
+print(md5("abc"))

@@ -1,0 +1,33 @@
+-- Helpers for parsing a caller-provided command-line argument list.
+fn cli_has_flag(args: [str], flag: str) -> bool
+    for arg in args
+        if arg == flag return true end
+    end
+    return false
+end
+
+fn cli_value_or(args: [str], flag: str, fallback: str) -> str
+    mut i = 0
+    while i + 1 < args.len()
+        if args[i] == flag return args[i + 1] end
+        i = i + 1
+    end
+    return fallback
+end
+
+fn cli_flag_value(args: [str], prefix: str) -> str?
+    for arg in args
+        if arg.starts_with(prefix) and arg.len() > prefix.len()
+            return arg.slice(prefix.len(), arg.len())
+        end
+    end
+    return none
+end
+
+fn cli_positional(args: [str]) -> [str]
+    mut out: [str] = []
+    for arg in args
+        if not arg.starts_with("-") out.push(arg) end
+    end
+    return out
+end

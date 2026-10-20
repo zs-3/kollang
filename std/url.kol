@@ -1,0 +1,252 @@
+-- URL helpers. Percent encoding is UTF-8 byte oriented for ASCII-compatible input.
+use std.encoding
+use std.str
+use std.convert
+
+fn url_percent_encode(value: str) -> str
+    return url_encode(value)
+end
+
+fn url_percent_decode(value: str) -> str!
+    return url_decode(value)
+end
+
+fn url_query_escape(value: str) -> str
+    return url_encode(value).replace("%20", "+")
+end
+
+fn url_query_unescape(value: str) -> str!
+    return url_decode(value.replace("+", " "))
+end
+
+fn url_has_scheme(value: str) -> bool
+    let colon = index_of(value, ":")
+    if colon <= 0 return false end
+    let first = value.slice(0, 1)
+    let code = char_code(first)
+    if not ((code >= 65 and code <= 90) or (code >= 97 and code <= 122)) return false end
+    mut i = 1
+    while i < colon
+        let c = value.slice(i, i + 1)
+        let k = char_code(c)
+        if not ((k >= 65 and k <= 90) or (k >= 97 and k <= 122) or (k >= 48 and k <= 57) or c == "+" or c == "-" or c == ".")
+            return false
+        end
+        i = i + 1
+    end
+    return true
+end
+
+fn url_scheme(value: str) -> str
+    let colon = index_of(value, ":")
+    if colon <= 0 return "" end
+    return value.slice(0, colon).lower()
+end
+
+fn url_host(value: str) -> str
+    let marker = index_of(value, "://")
+    if marker < 0 return "" end
+    let start = marker + 3
+    let remainder = value.slice(start, value.len())
+    let end_slash = index_of(remainder, "/")
+    let end_query = index_of(remainder, "?")
+    let end_hash = index_of(remainder, "#")
+    mut stop = value.len()
+    if end_slash >= 0 and start + end_slash < stop stop = start + end_slash end
+    if end_query >= 0 and start + end_query < stop stop = start + end_query end
+    if end_hash >= 0 and start + end_hash < stop stop = start + end_hash end
+    let authority = value.slice(start, stop)
+    let at = last_index_of(authority, "@")
+    if at >= 0 return authority.slice(at + 1, authority.len()) end
+    return authority
+end
+
+fn url_path(value: str) -> str
+    let marker = index_of(value, "://")
+    if marker < 0 return value end
+    let start = marker + 3
+    mut i = start
+    while i < value.len()
+        let c = value.slice(i, i + 1)
+        if c == "/" return value.slice(i, value.len()) end
+        if c == "?" or c == "#" return "" end
+        i = i + 1
+    end
+    return "/"
+end
+
+fn url_strip_fragment(value: str) -> str
+    let i = index_of(value, "#")
+    if i < 0 return value end
+    return value.slice(0, i)
+end
+
+fn url_strip_query(value: str) -> str
+    let i = index_of(value, "?")
+    if i < 0 return url_strip_fragment(value) end
+    return url_strip_fragment(value.slice(0, i))
+end
+
+fn url_query(value: str) -> str
+    let clean = url_strip_fragment(value)
+    let q = index_of(clean, "?")
+    if q < 0 return "" end
+    return clean.slice(q + 1, clean.len())
+end
+
+fn url_fragment(value: str) -> str
+    let hash = index_of(value, "#")
+    if hash < 0 return "" end
+    return value.slice(hash + 1, value.len())
+end
+
+fn url_hostname(value: str) -> str
+    let host = url_host(value)
+    if host.starts_with("[")
+        let close = index_of(host, "]")
+        if close >= 0 return host.slice(0, close + 1) end
+    end
+    let colon = last_index_of(host, ":")
+    if colon >= 0 return host.slice(0, colon) end
+    return host
+end
+
+fn url_port(value: str) -> int
+    let host = url_host(value)
+    if host.starts_with("[")
+        let close = index_of(host, "]")
+        if close >= 0 and close + 1 < host.len() and host.slice(close + 1, close + 2) == ":"
+            return str_to_int(host.slice(close + 2, host.len())) or -1
+        end
+        return -1
+    end
+    let colon = last_index_of(host, ":")
+    if colon < 0 return -1 end
+    return str_to_int(host.slice(colon + 1, host.len())) or -1
+end
+
+fn url_query_param(value: str, key: str) -> str
+    let query = url_query(value)
+    if query.len() == 0 return "" end
+    let parts = query.split("&")
+    for part in parts
+        let eq = index_of(part, "=")
+        mut name = part
+        if eq >= 0 name = part.slice(0, eq) end
+        if (url_query_unescape(name) or name) == key
+            if eq < 0 return "" end
+            let val = part.slice(eq + 1, part.len())
+            return url_query_unescape(val) or ""
+        end
+    end
+    return ""
+end
+
+-- Distinguishes a missing parameter from one present with an empty value.
+fn url_has_query_param(value: str, key: str) -> bool
+    let query = url_query(value)
+    if query.len() == 0 return false end
+    let parts = query.split("&")
+    for part in parts
+        let eq = index_of(part, "=")
+        mut name = part
+        if eq >= 0 name = part.slice(0, eq) end
+        if (url_query_unescape(name) or name) == key
+            return true
+        end
+    end
+    return false
+end
+
+fn url_query_param_or(value: str, key: str, fallback: str) -> str
+    if not url_has_query_param(value, key)
+        return fallback
+    end
+    return url_query_param(value, key)
+end
+
+fn url_query_param_count(value: str, key: str) -> int
+    let query = url_query(value)
+    if query.len() == 0 return 0 end
+    let parts = query.split("&")
+    mut count = 0
+    for part in parts
+        let eq = index_of(part, "=")
+        mut name = part
+        if eq >= 0 name = part.slice(0, eq) end
+        if (url_query_unescape(name) or name) == key
+            count = count + 1
+        end
+    end
+    return count
+end
+
+
+-- Return all values for a repeated query key in source order.
+fn url_query_param_all(value: str, key: str) -> [str]
+    mut results: [str] = []
+    let query = url_query(value)
+    if query.len() == 0 return results end
+    let parts = query.split("&")
+    for part in parts
+        let eq = index_of(part, "=")
+        mut name = part
+        if eq >= 0 name = part.slice(0, eq) end
+        if (url_query_unescape(name) or name) == key
+            if eq < 0
+                results.push("")
+            else
+                results.push(url_query_unescape(part.slice(eq + 1, part.len())) or "")
+            end
+        end
+    end
+    return results
+end
+
+-- Append one query key/value before any fragment, preserving existing parameters.
+fn url_query_add(value: str, key: str, field_value: str) -> str
+    let fragment_pos = index_of(value, "#")
+    let fragment = url_fragment(value)
+    let base = url_strip_query(value)
+    let query = url_query(value)
+    mut out = base
+    if query.len() > 0
+        out = out + "?" + query + "&"
+    else
+        out = out + "?"
+    end
+    out = out + url_query_escape(key) + "=" + url_query_escape(field_value)
+    if fragment_pos >= 0
+        out = out + "#" + fragment
+    end
+    return out
+end
+
+-- Remove every occurrence of a query key while preserving unrelated raw pairs.
+fn url_query_remove(value: str, key: str) -> str
+    let query = url_query(value)
+    if query.len() == 0 return value end
+    let fragment_pos = index_of(value, "#")
+    let fragment = url_fragment(value)
+    let base = url_strip_query(value)
+    let parts = query.split("&")
+    mut kept = ""
+    for part in parts
+        let eq = index_of(part, "=")
+        mut name = part
+        if eq >= 0 name = part.slice(0, eq) end
+        if (url_query_unescape(name) or name) != key
+            if kept.len() > 0 kept = kept + "&" end
+            kept = kept + part
+        end
+    end
+    mut out = base
+    if kept.len() > 0 out = out + "?" + kept end
+    if fragment_pos >= 0 out = out + "#" + fragment end
+    return out
+end
+
+-- Replace all values for a key with one encoded value.
+fn url_query_set(value: str, key: str, field_value: str) -> str
+    return url_query_add(url_query_remove(value, key), key, field_value)
+end

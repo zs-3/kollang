@@ -1,0 +1,80 @@
+-- Small INI reader. Supports [sections], key=value, and ;/# full-line comments.
+-- It intentionally does not implement multiline values or interpolation.
+use std.str
+
+fn ini_get(document: str, wanted_section: str, wanted_key: str) -> str
+    mut section = ""
+    let lines = document.split("\n")
+    for raw_line in lines
+        let line = raw_line.trim()
+        if line.len() == 0 or line.starts_with(";") or line.starts_with("#")
+            continue
+        end
+        if line.starts_with("[") and line.ends_with("]") and line.len() >= 2
+            section = line.slice(1, line.len() - 1).trim()
+            continue
+        end
+        if section != wanted_section continue end
+        let equal = index_of(line, "=")
+        if equal < 0 continue end
+        let key = line.slice(0, equal).trim()
+        if key == wanted_key
+            return line.slice(equal + 1, line.len()).trim()
+        end
+    end
+    return ""
+end
+
+fn ini_get_or(document: str, section: str, key: str, fallback: str) -> str
+    let value = ini_get(document, section, key)
+    if value.len() == 0 return fallback end
+    return value
+end
+
+fn ini_has_key(document: str, section: str, key: str) -> bool
+    let lines = document.split("\n")
+    mut current_section = ""
+    for raw_line in lines
+        let line = raw_line.trim()
+        if line.len() == 0 or line.starts_with(";") or line.starts_with("#")
+            continue
+        end
+        if line.starts_with("[") and line.ends_with("]") and line.len() >= 2
+            current_section = line.slice(1, line.len() - 1).trim()
+        elif current_section == section
+            let equal = index_of(line, "=")
+            if equal >= 0 and line.slice(0, equal).trim() == key return true end
+        end
+    end
+    return false
+end
+
+fn ini_section_exists(document: str, wanted_section: str) -> bool
+    let lines = document.split("\n")
+    for raw_line in lines
+        let line = raw_line.trim()
+        if line.starts_with("[") and line.ends_with("]") and line.len() >= 2
+            if line.slice(1, line.len() - 1).trim() == wanted_section return true end
+        end
+    end
+    return false
+end
+
+fn ini_keys(document: str, wanted_section: str) -> [str]
+    mut keys: [str] = []
+    mut section = ""
+    let lines = document.split("\n")
+    for raw_line in lines
+        let line = raw_line.trim()
+        if line.starts_with("[") and line.ends_with("]") and line.len() >= 2
+            section = line.slice(1, line.len() - 1).trim()
+        elif section == wanted_section and line.len() > 0 and not line.starts_with(";") and not line.starts_with("#")
+            let equal = index_of(line, "=")
+            if equal > 0
+                let key = line.slice(0, equal).trim()
+                if key.len() > 0 and not keys.contains(key) keys.push(key) end
+            end
+        end
+    end
+    return keys
+end
